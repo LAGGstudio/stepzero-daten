@@ -24,6 +24,33 @@ ZEITLIMIT = 180
 WARTEN_ANTWORT = 600
 WARTEN_WIEDERHOLUNG = 60
 PAUSE_LAENDER = 30
+# Eine Antwort taugt nur, wenn ihr Datenstand höchstens so alt ist: Am
+# 9.11.2026 lieferte overpass.private.coffee Daten vom Juni 2026.
+MAX_ALTER_TAGE = 7
+
+
+class Unbrauchbar(SystemExit):
+    """Overpass hat geantwortet, aber nicht brauchbar (Fehlerhinweis, leer,
+    veraltet); dann gilt der Rückfall, ohne zweiten Versuch."""
+
+
+def brauchbar(land, roh, heute=None):
+    """Wirft Unbrauchbar bei `remark` mit Fehler, ohne Elemente oder mit einem
+    Datenstand älter als MAX_ALTER_TAGE."""
+    import datetime
+    remark = roh.get('remark') or ''
+    if 'error' in remark.lower():
+        raise Unbrauchbar('%s: Overpass meldet %s' % (land, remark[:200]))
+    if not roh.get('elements'):
+        raise Unbrauchbar('%s: Overpass lieferte keine Elemente' % land)
+    basis = (roh.get('osm3s', {}).get('timestamp_osm_base') or '')[:10]
+    heute = heute or datetime.date.today()
+    try:
+        alter = (heute - datetime.date.fromisoformat(basis)).days
+    except ValueError:
+        raise Unbrauchbar('%s: Overpass ohne Datenstand' % land)
+    if alter > MAX_ALTER_TAGE:
+        raise Unbrauchbar('%s: Overpass-Datenstand %s ist %d Tage alt' % (land, basis, alter))
 
 
 def abfrage(land):
@@ -43,10 +70,10 @@ def holen(land):
         return geofabrik.holen(land)
     try:
         return overpass_holen(land)
-    except SystemExit:
+    except SystemExit as grund:
         if quelle == 'overpass':
             raise
-        print('%s: Overpass gescheitert, Rückfall auf den Geofabrik-Auszug' % land, file=sys.stderr)
+        print('%s: Overpass gescheitert (%s), Rückfall auf den Geofabrik-Auszug' % (land, grund), file=sys.stderr)
         import geofabrik
         return geofabrik.holen(land)
 
@@ -57,7 +84,11 @@ def overpass_holen(land):
         try:
             anfrage = urllib.request.Request(ENDPUNKT, data=daten, headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(anfrage, timeout=WARTEN_ANTWORT) as antwort:
-                return json.load(antwort)
+                roh = json.load(antwort)
+            brauchbar(land, roh)
+            return roh
+        except Unbrauchbar:
+            raise
         except Exception as fehler:  # noqa: BLE001
             print('%s: Versuch %d gescheitert: %s' % (land, versuch, fehler), file=sys.stderr)
             if versuch == 1:

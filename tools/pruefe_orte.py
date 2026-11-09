@@ -16,11 +16,18 @@ from orte import ART_NAMEN, LAENDER, RAHMEN  # noqa: E402
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_RUECKGANG = 0.30
+# Untergrenzen, damit auch die erste Veröffentlichung nichts Leeres oder
+# Veraltetes durchlässt (am 9.11.2026 ging so eine leere DE-Datei raus):
+# je Land mindestens so viele Einträge (gemessen DE 17 006, AT 9 304,
+# CH 16 151) und ein Stand höchstens so viele Tage alt.
+MIN_EINTRAEGE = 1000
+MAX_ALTER_TAGE = 30
 FELDER = {'id', 'k', 'lat', 'lon', 'name', 'adresse', 'oeffnung'}
 USER_AGENT = 'StepZero-Daten/1.0 (info.laggstudio@gmail.com)'
 
 
-def schema_fehler(land, daten):
+def schema_fehler(land, daten, heute=None):
+    import datetime
     f = []
     if not isinstance(daten, dict):
         return ['%s: kein Objekt' % land]
@@ -28,11 +35,17 @@ def schema_fehler(land, daten):
         f.append('%s: Felder %s' % (land, sorted(daten)))
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(daten.get('stand'))):
         f.append('%s: stand %r' % (land, daten.get('stand')))
+    else:
+        alter = ((heute or datetime.date.today()) - datetime.date.fromisoformat(daten['stand'])).days
+        if alter > MAX_ALTER_TAGE:
+            f.append('%s: stand %s ist %d Tage alt (höchstens %d)' % (land, daten['stand'], alter, MAX_ALTER_TAGE))
     if 'OpenStreetMap' not in str(daten.get('lizenz')):
         f.append('%s: lizenz ohne OpenStreetMap' % land)
     eintraege = daten.get('eintraege')
     if not isinstance(eintraege, list):
         return f + ['%s: eintraege keine Liste' % land]
+    if len(eintraege) < MIN_EINTRAEGE:
+        f.append('%s: nur %d Einträge (mindestens %d)' % (land, len(eintraege), MIN_EINTRAEGE))
     s, n, w, o = RAHMEN[land]
     ids = set()
     for e in eintraege:
@@ -89,7 +102,7 @@ def vorher_laden(quelle, land):
         return json.load(d)
 
 
-def pruefen(ordner, vorher=None):
+def pruefen(ordner, vorher=None, heute=None):
     fehler = []
     for land in LAENDER:
         pfad = os.path.join(ordner, land + '.json')
@@ -103,7 +116,7 @@ def pruefen(ordner, vorher=None):
                 daten = json.load(d)
             except ValueError as e:
                 fehler.append('%s: kein JSON (%s)' % (land, e)); continue
-        f = schema_fehler(land, daten)
+        f = schema_fehler(land, daten, heute)
         fehler += f
         if f:
             continue

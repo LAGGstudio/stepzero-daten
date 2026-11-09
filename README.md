@@ -65,9 +65,12 @@ GitHub Actions (`.github/workflows/orte.yml`) läuft montags um 03:00 UTC und
 per Hand: Tests, je Land eine Overpass-Abfrage (`tools/hole_orte.py`, Server
 `overpass.private.coffee`, änderbar über `OVERPASS_URL`,
 User-Agent `StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit 180 s,
-eine Wiederholung nach 60 s, Pause zwischen den Ländern), Prüfung gegen die
-veröffentlichte Fassung (`tools/pruefe_orte.py`: Schema, Koordinaten im Land,
-höchstens 8 MB, keine Art fällt um mehr als 30 %), dann die Übersicht und die
+eine Wiederholung nach 60 s, Pause zwischen den Ländern; eine Antwort mit
+Fehlerhinweis, ohne Elemente oder mit einem Datenstand älter als 7 Tage gilt
+als gescheitert, dann der Geofabrik-Auszug), Prüfung gegen die veröffentlichte
+Fassung (`tools/pruefe_orte.py`: Schema, Koordinaten im Land, höchstens 8 MB,
+je Land mindestens 1000 Einträge, Stand höchstens 30 Tage alt, keine Art fällt
+um mehr als 30 %), dann die Übersicht und die
 Veröffentlichung auf GitHub Pages. Schlägt die Prüfung fehl, bleibt die alte
 Fassung online.
 

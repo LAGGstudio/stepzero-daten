@@ -1,5 +1,5 @@
 """Tests für Umwandlung und Prüfung (ohne Netz): python3 -m unittest discover -s tests"""
-import json, os, sys, tempfile, unittest
+import datetime, json, os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 import hole_orte  # noqa: E402
@@ -101,6 +101,46 @@ class Rueckfall(unittest.TestCase):
             hole_orte.overpass_holen, geofabrik.holen = alt_o, alt_g
 
 
+class OverpassAntwort(unittest.TestCase):
+    def roh(self, basis='2026-11-08T21:00:00Z', elemente=1, remark=None):
+        r = {'osm3s': {'timestamp_osm_base': basis}, 'elements': [{'type': 'node', 'id': i} for i in range(elemente)]}
+        if remark:
+            r['remark'] = remark
+        return r
+
+    def test_brauchbar(self):
+        hole_orte.brauchbar('de', self.roh(), heute=HEUTE)
+        hole_orte.brauchbar('de', self.roh(basis='2026-11-02T00:00:00Z'), heute=HEUTE)
+
+    def test_veraltet_leer_oder_fehler(self):
+        # So antwortete overpass.private.coffee am 9.11.2026 (Stand Juni, DE leer).
+        for roh, text in (
+            (self.roh(basis='2026-06-01T00:00:00Z'), '161 Tage alt'),
+            (self.roh(basis='2026-11-01T00:00:00Z'), '8 Tage alt'),
+            (self.roh(elemente=0), 'keine Elemente'),
+            (self.roh(remark='runtime error: Query timed out in "query" at line 3 after 181 seconds.'), 'Overpass meldet'),
+            ({'elements': [{'type': 'node', 'id': 1}]}, 'ohne Datenstand'),
+        ):
+            with self.assertRaises(hole_orte.Unbrauchbar) as ctx:
+                hole_orte.brauchbar('de', roh, heute=HEUTE)
+            self.assertIn(text, str(ctx.exception))
+
+    def test_unbrauchbar_fuehrt_zum_rueckfall(self):
+        import geofabrik
+        alt_o, alt_g = hole_orte.overpass_holen, geofabrik.holen
+        try:
+            def overpass(land):
+                raise hole_orte.Unbrauchbar('de: Overpass-Datenstand 2026-06-01 ist 161 Tage alt')
+            hole_orte.overpass_holen = overpass
+            geofabrik.holen = lambda land: {'elements': ['auszug']}
+            self.assertEqual(hole_orte.holen('de'), {'elements': ['auszug']})
+        finally:
+            hole_orte.overpass_holen, geofabrik.holen = alt_o, alt_g
+
+
+HEUTE = datetime.date(2026, 11, 9)
+
+
 def datei(eintraege, stand='2026-11-09'):
     return {'stand': stand, 'lizenz': 'ODbL 1.0, © OpenStreetMap-Mitwirkende', 'eintraege': eintraege}
 
@@ -111,6 +151,17 @@ def gueltig(land='de', n=10, k='trinkbrunnen'):
 
 
 class Pruefung(unittest.TestCase):
+    # Die Testdateien sind klein; die Untergrenze prüfen eigene Tests.
+    def setUp(self):
+        self.min_alt = pruefe_orte.MIN_EINTRAEGE
+        pruefe_orte.MIN_EINTRAEGE = 1
+
+    def tearDown(self):
+        pruefe_orte.MIN_EINTRAEGE = self.min_alt
+
+    def pruefen(self, ordner, vorher=None):
+        return pruefe_orte.pruefen(ordner, vorher, heute=HEUTE)
+
     def ordner(self, inhalte, roh=None):
         d = tempfile.mkdtemp()
         for land in ('de', 'at', 'ch'):
@@ -122,12 +173,12 @@ class Pruefung(unittest.TestCase):
         return d
 
     def test_gueltig(self):
-        self.assertEqual(pruefe_orte.pruefen(self.ordner({})), [])
+        self.assertEqual(self.pruefen(self.ordner({})), [])
 
     def test_koordinate_ausserhalb(self):
         e = gueltig('ch')
         e[0]['lat'] = 52.5  # Berlin
-        f = pruefe_orte.pruefen(self.ordner({'ch': datei(e)}))
+        f = self.pruefen(self.ordner({'ch': datei(e)}))
         self.assertTrue(any('außerhalb' in x for x in f), f)
 
     def test_schema(self):
@@ -136,7 +187,7 @@ class Pruefung(unittest.TestCase):
         e[1]['lat'] = 50.123456
         e[2]['farbe'] = 'gruen'
         e[3]['id'] = 'n0'
-        f = pruefe_orte.pruefen(self.ordner({'de': datei(e, stand='9.11.2026')}))
+        f = self.pruefen(self.ordner({'de': datei(e, stand='9.11.2026')}))
         self.assertTrue(any("Art 'leihladen'" in x for x in f), f)
         self.assertTrue(any('lat 50.123456' in x for x in f), f)
         self.assertTrue(any('farbe' in x for x in f), f)
@@ -146,28 +197,42 @@ class Pruefung(unittest.TestCase):
     def test_kaputtes_json_und_fehlende_datei(self):
         d = self.ordner({}, roh={'at': '{"stand":'})
         os.remove(os.path.join(d, 'ch.json'))
-        f = pruefe_orte.pruefen(d)
+        f = self.pruefen(d)
         self.assertTrue(any('at: kein JSON' in x for x in f), f)
         self.assertTrue(any('ch: Datei fehlt' in x for x in f), f)
 
     def test_rueckgang_ueber_30_prozent(self):
         vorher = self.ordner({'de': datei(gueltig(n=100))})
-        self.assertEqual(pruefe_orte.pruefen(self.ordner({'de': datei(gueltig(n=70))}), vorher), [])
-        f = pruefe_orte.pruefen(self.ordner({'de': datei(gueltig(n=69))}), vorher)
+        self.assertEqual(self.pruefen(self.ordner({'de': datei(gueltig(n=70))}), vorher), [])
+        f = self.pruefen(self.ordner({'de': datei(gueltig(n=69))}), vorher)
         self.assertTrue(any('fällt von 100 auf 69' in x for x in f), f)
         # Eine Art verschwindet ganz.
-        f = pruefe_orte.pruefen(self.ordner({'de': datei(gueltig(n=100, k='refill'))}), vorher)
+        f = self.pruefen(self.ordner({'de': datei(gueltig(n=100, k='refill'))}), vorher)
         self.assertTrue(any('trinkbrunnen fällt von 100 auf 0' in x for x in f), f)
 
     def test_ohne_vorherige_datei_kein_vergleich(self):
         leer = tempfile.mkdtemp()
-        self.assertEqual(pruefe_orte.pruefen(self.ordner({'de': datei(gueltig(n=1))}), leer), [])
+        self.assertEqual(self.pruefen(self.ordner({'de': datei(gueltig(n=1))}), leer), [])
+
+    def test_untergrenze_eintraege(self):
+        # Am 9.11.2026 ging ohne sie eine leere DE-Datei raus.
+        pruefe_orte.MIN_EINTRAEGE = 1000
+        self.assertEqual(self.pruefen(self.ordner({l: datei(gueltig(l, n=1000)) for l in ('de', 'at', 'ch')})), [])
+        f = self.pruefen(self.ordner({l: datei(gueltig(l, n=1000)) for l in ('at', 'ch')} | {'de': datei([])}))
+        self.assertEqual(f, ['de: nur 0 Einträge (mindestens 1000)'])
+        f = self.pruefen(self.ordner({l: datei(gueltig(l, n=1000)) for l in ('de', 'ch')} | {'at': datei(gueltig('at', n=999))}))
+        self.assertEqual(f, ['at: nur 999 Einträge (mindestens 1000)'])
+
+    def test_stand_hoechstens_30_tage_alt(self):
+        self.assertEqual(self.pruefen(self.ordner({'de': datei(gueltig(), stand='2026-10-10')})), [])
+        f = self.pruefen(self.ordner({'de': datei(gueltig(), stand='2026-10-09')}))
+        self.assertEqual(f, ['de: stand 2026-10-09 ist 31 Tage alt (höchstens 30)'])
 
     def test_groesse_ueber_8_mb(self):
         d = self.ordner({})
         with open(os.path.join(d, 'de.json'), 'a', encoding='utf-8') as f:
             f.write(' ' * (8 * 1024 * 1024))
-        f = pruefe_orte.pruefen(d)
+        f = self.pruefen(d)
         self.assertTrue(any('mehr als 8 MB' in x for x in f), f)
 
 
