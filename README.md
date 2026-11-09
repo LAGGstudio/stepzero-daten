@@ -75,6 +75,19 @@ Lokal: `python3 -m unittest discover -s tests`, `python3 tools/hole_orte.py`,
 `python3 tools/pruefe_orte.py ausgabe [vorher]`, `python3 tools/seite_bauen.py`.
 Nur Python-Standardbibliothek.
 
+### Rückfall: Geofabrik-Auszug
+
+Scheitern beide Overpass-Versuche eines Lands, liest `tools/hole_orte.py` den
+täglichen Auszug von Geofabrik (`download.geofabrik.de/europe/germany`,
+`austria`, `switzerland`, `.osm.pbf`) mit pyosmium (`tools/geofabrik.py`,
+`pip install osmium`): dieselben Etiketten und Ausschlüsse, bei Wegen und
+Relationen die Mitte des umschließenden Rechtecks wie bei Overpass `center`,
+`stand` aus dem Zeitstempel des Auszugs. Das OSM-Wiki empfiehlt Auszüge plus
+osmium ausdrücklich, wenn man viele Daten braucht. Die Auszüge folgen den
+Grenzen mit einem kleinen Saum; die Prüfung fängt nur grobe Ausreißer.
+`ORTE_QUELLE=geofabrik` nimmt direkt den Auszug, `ORTE_QUELLE=overpass` lässt
+den Rückfall weg.
+
 ### Warum nicht overpass-api.de
 
 Die Hauptinstanz war beim ersten Lauf am 9.11.2026 überlastet (Zeitüberschreitung,

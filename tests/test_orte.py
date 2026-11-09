@@ -69,6 +69,38 @@ class Umwandlung(unittest.TestCase):
         self.assertIn('nwr["leisure"="garden"]["garden:type"="community"](area.land);', q)
 
 
+class Rueckfall(unittest.TestCase):
+    def test_mitte_des_rechtecks(self):
+        import geofabrik
+        self.assertEqual(geofabrik._mitte([(50.0, 7.0), (51.0, 9.0), (50.2, 7.5)]), {'lat': 50.5, 'lon': 8.0})
+        self.assertIsNone(geofabrik._mitte([]))
+
+    def test_etiketten_fuer_den_filter(self):
+        import geofabrik
+        self.assertIn(('leisure', 'garden'), geofabrik.ETIKETTEN)
+        self.assertIn(('repair', 'assisted_self_service'), geofabrik.ETIKETTEN)
+        self.assertIn(('drinking_water:refill', 'yes'), geofabrik.ETIKETTEN)
+
+    def test_overpass_gescheitert_dann_geofabrik(self):
+        import geofabrik
+        aufrufe = []
+        alt_o, alt_g = hole_orte.overpass_holen, geofabrik.holen
+        try:
+            def overpass(land):
+                aufrufe.append(('overpass', land))
+                raise SystemExit('nicht erreichbar')
+            hole_orte.overpass_holen = overpass
+            geofabrik.holen = lambda land: aufrufe.append(('geofabrik', land)) or {'elements': []}
+            self.assertEqual(hole_orte.holen('ch'), {'elements': []})
+            self.assertEqual(aufrufe, [('overpass', 'ch'), ('geofabrik', 'ch')])
+            os.environ['ORTE_QUELLE'] = 'overpass'
+            with self.assertRaises(SystemExit):
+                hole_orte.holen('ch')
+        finally:
+            os.environ.pop('ORTE_QUELLE', None)
+            hole_orte.overpass_holen, geofabrik.holen = alt_o, alt_g
+
+
 def datei(eintraege, stand='2026-11-09'):
     return {'stand': stand, 'lizenz': 'ODbL 1.0, © OpenStreetMap-Mitwirkende', 'eintraege': eintraege}
 

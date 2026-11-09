@@ -1,5 +1,9 @@
 """Holt die Orte je Land (DE, AT, CH) aus OpenStreetMap über Overpass und
-schreibt ausgabe/<land>.json (kompakt). Nur Python-Standardbibliothek.
+schreibt ausgabe/<land>.json (kompakt). Overpass braucht nur die
+Standardbibliothek. Scheitern beide Versuche, liest das Skript den
+Geofabrik-Auszug des Lands (tools/geofabrik.py, braucht pyosmium:
+`pip install osmium`); mit ORTE_QUELLE=geofabrik direkt, mit
+ORTE_QUELLE=overpass ohne Rückfall.
 
   python3 tools/hole_orte.py [ausgabe] [de at ch]
 """
@@ -33,6 +37,21 @@ def abfrage(land):
 
 
 def holen(land):
+    quelle = os.environ.get('ORTE_QUELLE', '')
+    if quelle == 'geofabrik':
+        import geofabrik
+        return geofabrik.holen(land)
+    try:
+        return overpass_holen(land)
+    except SystemExit:
+        if quelle == 'overpass':
+            raise
+        print('%s: Overpass gescheitert, Rückfall auf den Geofabrik-Auszug' % land, file=sys.stderr)
+        import geofabrik
+        return geofabrik.holen(land)
+
+
+def overpass_holen(land):
     daten = urllib.parse.urlencode({'data': abfrage(land)}).encode()
     for versuch in (1, 2):
         try:
