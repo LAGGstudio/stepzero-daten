@@ -1,5 +1,7 @@
 """Gemeinsame Regeln für die Orte aus OpenStreetMap: Arten, Etiketten,
-Ausschlüsse und die Umwandlung eines Overpass-Elements in einen Eintrag."""
+Ausschlüsse, die Umwandlung eines Overpass-Elements in einen Eintrag und das
+Zusammenführen doppelter Einträge."""
+import math, unicodedata
 
 LAENDER = ('de', 'at', 'ch')
 
@@ -75,3 +77,63 @@ def eintrag(element):
         if wert:
             e[feld] = wert
     return e
+
+
+# Doppelte: OSM enthält denselben Ort mehrfach (am 9.11.2026 in DE 91 Paare
+# gleicher Art und gleichen Namens unter etwa 100 m, z. B. dreimal „Querbeet“
+# in Köln). Gleich sind Einträge derselben Art mit demselben Namen (klein, ohne
+# Leer- und Satzzeichen) unter DOPPEL_ABSTAND_M; ohne Namen nie.
+DOPPEL_ABSTAND_M = 100
+ERDRADIUS_M = 6371008.8  # wie die App (lib/logic/orte_naehe.dart)
+
+
+def name_schluessel(name):
+    """Klein, ohne Leer- und Satzzeichen: „Quer-Beet “ und „querbeet“ sind gleich."""
+    return ''.join(c for c in name.lower()
+                   if not c.isspace() and not unicodedata.category(c).startswith('P'))
+
+
+def abstand_m(a, b):
+    """Haversine zwischen zwei Einträgen in Metern."""
+    p1, p2 = math.radians(a['lat']), math.radians(b['lat'])
+    dp, dl = p2 - p1, math.radians(b['lon'] - a['lon'])
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * ERDRADIUS_M * math.asin(math.sqrt(h))
+
+
+def angaben(e):
+    """Wie viele der Angaben Adresse und Öffnungszeiten ein Eintrag hat."""
+    return sum(1 for feld in ('adresse', 'oeffnung') if feld in e)
+
+
+def id_schluessel(e):
+    """Kleinere ID: erst der Typ in OSM-Reihenfolge (Knoten, Weg, Relation),
+    dann die Nummer als Zahl (n9 vor n10)."""
+    return 'nwr'.index(e['id'][0]), int(e['id'][1:])
+
+
+def doppelte_zusammenfuehren(eintraege):
+    """Führt doppelte Einträge zusammen und gibt (behaltene, Anzahl
+    zusammengeführter je Art) zurück. Je Art und Name gewinnt der Eintrag mit
+    den meisten Angaben, bei Gleichstand der mit der kleineren ID; jeder
+    weitere unter DOPPEL_ABSTAND_M von einem behaltenen fällt weg. So liegt
+    jeder weggefallene Eintrag nah an dem, der ihn ersetzt (keine Ketten).
+    Die Reihenfolge der behaltenen bleibt wie in `eintraege`."""
+    gruppen = {}
+    for e in eintraege:
+        if e.get('name'):
+            schluessel = name_schluessel(e['name'])
+            if schluessel:
+                gruppen.setdefault((e['k'], schluessel), []).append(e)
+    weg, zusammengefuehrt = set(), {}
+    for (k, _), gruppe in gruppen.items():
+        if len(gruppe) < 2:
+            continue
+        behalten = []
+        for e in sorted(gruppe, key=lambda e: (-angaben(e), id_schluessel(e))):
+            if any(abstand_m(e, b) < DOPPEL_ABSTAND_M for b in behalten):
+                weg.add(e['id'])
+                zusammengefuehrt[k] = zusammengefuehrt.get(k, 0) + 1
+            else:
+                behalten.append(e)
+    return [e for e in eintraege if e['id'] not in weg], zusammengefuehrt

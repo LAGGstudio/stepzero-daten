@@ -1,10 +1,11 @@
 """Tests für Umwandlung und Prüfung (ohne Netz): python3 -m unittest discover -s tests"""
-import datetime, json, os, sys, tempfile, unittest
+import datetime, io, json, os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 import hole_orte  # noqa: E402
 import pruefe_orte  # noqa: E402
-from orte import adresse, art, ausgeschlossen, eintrag  # noqa: E402
+import orte  # noqa: E402
+from orte import abstand_m, adresse, art, ausgeschlossen, doppelte_zusammenfuehren, eintrag, name_schluessel  # noqa: E402
 
 
 def knoten(i, tags, lat=50.93759, lon=6.96016):
@@ -55,7 +56,8 @@ class Umwandlung(unittest.TestCase):
         roh = {'osm3s': {'timestamp_osm_base': '2026-11-09T18:00:00Z'}, 'elements': [
             knoten(2, {'amenity': 'drinking_water'}), knoten(1, {'amenity': 'give_box'}),
             knoten(2, {'amenity': 'drinking_water'}), knoten(3, {'shop': 'kiosk'})]}
-        d = hole_orte.umwandeln(roh)
+        d, zusammengefuehrt = hole_orte.umwandeln(roh)
+        self.assertEqual(zusammengefuehrt, {})
         self.assertEqual(d['stand'], '2026-11-09')
         self.assertIn('OpenStreetMap', d['lizenz'])
         self.assertEqual([e['id'] for e in d['eintraege']], ['n2', 'n1'])
@@ -81,7 +83,7 @@ class Rueckfall(unittest.TestCase):
         self.assertIn(('repair', 'assisted_self_service'), geofabrik.ETIKETTEN)
         self.assertIn(('drinking_water:refill', 'yes'), geofabrik.ETIKETTEN)
 
-    def test_overpass_gescheitert_dann_geofabrik(self):
+    def test_quelle_geofabrik_standard_overpass_nur_von_hand(self):
         import geofabrik
         aufrufe = []
         alt_o, alt_g = hole_orte.overpass_holen, geofabrik.holen
@@ -91,11 +93,22 @@ class Rueckfall(unittest.TestCase):
                 raise SystemExit('nicht erreichbar')
             hole_orte.overpass_holen = overpass
             geofabrik.holen = lambda land: aufrufe.append(('geofabrik', land)) or {'elements': []}
+            os.environ.pop('ORTE_QUELLE', None)
             self.assertEqual(hole_orte.holen('ch'), {'elements': []})
-            self.assertEqual(aufrufe, [('overpass', 'ch'), ('geofabrik', 'ch')])
+            self.assertEqual(aufrufe, [('geofabrik', 'ch')])
+            os.environ['ORTE_QUELLE'] = 'geofabrik'
+            hole_orte.holen('at')
+            self.assertEqual(aufrufe[-1], ('geofabrik', 'at'))
+            # Overpass nur von Hand und ohne Rückfall auf den Auszug.
             os.environ['ORTE_QUELLE'] = 'overpass'
             with self.assertRaises(SystemExit):
-                hole_orte.holen('ch')
+                hole_orte.holen('de')
+            self.assertEqual(aufrufe[-1], ('overpass', 'de'))
+            os.environ['ORTE_QUELLE'] = 'overpas'
+            with self.assertRaises(SystemExit) as ctx:
+                hole_orte.holen('de')
+            self.assertIn('unbekannt', str(ctx.exception))
+            self.assertEqual(len(aufrufe), 3)
         finally:
             os.environ.pop('ORTE_QUELLE', None)
             hole_orte.overpass_holen, geofabrik.holen = alt_o, alt_g
@@ -125,17 +138,121 @@ class OverpassAntwort(unittest.TestCase):
                 hole_orte.brauchbar('de', roh, heute=HEUTE)
             self.assertIn(text, str(ctx.exception))
 
-    def test_unbrauchbar_fuehrt_zum_rueckfall(self):
+    def test_unbrauchbar_ohne_rueckfall(self):
         import geofabrik
-        alt_o, alt_g = hole_orte.overpass_holen, geofabrik.holen
+        alt_g = geofabrik.holen
+        alt_url = hole_orte.urllib.request.urlopen
         try:
-            def overpass(land):
-                raise hole_orte.Unbrauchbar('de: Overpass-Datenstand 2026-06-01 ist 161 Tage alt')
-            hole_orte.overpass_holen = overpass
-            geofabrik.holen = lambda land: {'elements': ['auszug']}
-            self.assertEqual(hole_orte.holen('de'), {'elements': ['auszug']})
+            geofabrik.holen = lambda land: self.fail('kein Rückfall mehr')
+
+            class Antwort(io.BytesIO):
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+            veraltet = json.dumps(self.roh(basis='2026-06-01T00:00:00Z')).encode()
+            hole_orte.urllib.request.urlopen = lambda *a, **k: Antwort(veraltet)
+            os.environ['ORTE_QUELLE'] = 'overpass'
+            with self.assertRaises(hole_orte.Unbrauchbar):
+                hole_orte.holen('de')
         finally:
-            hole_orte.overpass_holen, geofabrik.holen = alt_o, alt_g
+            os.environ.pop('ORTE_QUELLE', None)
+            geofabrik.holen = alt_g
+            hole_orte.urllib.request.urlopen = alt_url
+
+
+def ort(i, name=None, lat=50.9, lon=6.9, k='garten', **mehr):
+    e = {'id': i, 'k': k, 'lat': lat, 'lon': lon}
+    if name is not None:
+        e['name'] = name
+    e.update(mehr)
+    return e
+
+
+class Doppelte(unittest.TestCase):
+    # 0,00089° Breite sind bei 50,9° etwa 99 m, 0,00091° etwa 101 m.
+    NAH, WEIT = 50.9 + 0.00089, 50.9 + 0.00091
+
+    def ids(self, eintraege):
+        return [e['id'] for e in doppelte_zusammenfuehren(eintraege)[0]]
+
+    def test_abstaende_der_testpunkte(self):
+        self.assertLess(abstand_m(ort('n1'), ort('n2', lat=self.NAH)), 100)
+        self.assertGreater(abstand_m(ort('n1'), ort('n2', lat=self.WEIT)), 100)
+        # Gleiche Rechnung wie die App: 1° Breite = 111,195 km.
+        self.assertAlmostEqual(abstand_m(ort('n1', lat=50), ort('n2', lat=51)), 111195.08, places=1)
+
+    def test_name_schluessel(self):
+        self.assertEqual(name_schluessel('Quer-Beet '), 'querbeet')
+        self.assertEqual(name_schluessel('„Querbeet“'), 'querbeet')
+        self.assertEqual(name_schluessel('Bücherschrank am Ring'), name_schluessel('BÜCHERSCHRANK  Am-Ring.'))
+        # Gegenprobe: Buchstaben und Ziffern bleiben.
+        self.assertNotEqual(name_schluessel('Garten 1'), name_schluessel('Garten 2'))
+        self.assertNotEqual(name_schluessel('Rosengarten'), name_schluessel('Rosen garten Süd'))
+
+    def test_gleiche_art_gleicher_name_unter_100_m(self):
+        e = [ort('n1', 'Querbeet'), ort('n2', 'querbeet', lat=self.NAH)]
+        behalten, zusammen = doppelte_zusammenfuehren(e)
+        self.assertEqual([x['id'] for x in behalten], ['n1'])
+        self.assertEqual(zusammen, {'garten': 1})
+
+    def test_gegenproben_nicht_zusammenfuehren(self):
+        # Knapp über 100 m.
+        self.assertEqual(self.ids([ort('n1', 'Querbeet'), ort('n2', 'Querbeet', lat=self.WEIT)]), ['n1', 'n2'])
+        # Andere Art, gleicher Name, gleiche Stelle.
+        self.assertEqual(self.ids([ort('n1', 'Am Markt', k='trinkbrunnen'),
+                                   ort('n2', 'Am Markt', k='buecherschrank')]), ['n1', 'n2'])
+        # Anderer Name an derselben Stelle.
+        self.assertEqual(self.ids([ort('n1', 'Querbeet'), ort('n2', 'Querbeet 2')]), ['n1', 'n2'])
+        # Ohne Namen nie, auch an derselben Stelle; ebenso ein Name nur aus Satzzeichen.
+        self.assertEqual(self.ids([ort('n1', k='trinkbrunnen'), ort('n2', k='trinkbrunnen')]), ['n1', 'n2'])
+        self.assertEqual(self.ids([ort('n1', '-'), ort('n2', '–')]), ['n1', 'n2'])
+        self.assertEqual(self.ids([ort('n1', 'Querbeet'), ort('n2')]), ['n1', 'n2'])
+
+    def test_behalten_wird_der_mit_den_meisten_angaben(self):
+        e = [ort('n1', 'Querbeet', adresse='Ring 1'),
+             ort('n2', 'Querbeet', adresse='Ring 1', oeffnung='Mo-Fr 10:00-18:00'),
+             ort('n3', 'Querbeet')]
+        behalten, zusammen = doppelte_zusammenfuehren(e)
+        self.assertEqual([x['id'] for x in behalten], ['n2'])
+        self.assertEqual(behalten[0]['oeffnung'], 'Mo-Fr 10:00-18:00')
+        self.assertEqual(zusammen, {'garten': 2})
+        # Öffnungszeiten zählen wie eine Adresse.
+        self.assertEqual(self.ids([ort('n1', 'A'), ort('n2', 'A', oeffnung='24/7')]), ['n2'])
+
+    def test_gleichstand_kleinere_id(self):
+        # Als Zahl, nicht als Text: n9 vor n10 (als Text wäre n10 kleiner).
+        self.assertEqual(self.ids([ort('n10', 'A'), ort('n9', 'A')]), ['n9'])
+        # Typ in OSM-Reihenfolge: Knoten vor Weg vor Relation.
+        self.assertEqual(self.ids([ort('w1', 'A'), ort('n5', 'A')]), ['n5'])
+        self.assertEqual(self.ids([ort('r1', 'A'), ort('w7', 'A')]), ['w7'])
+
+    def test_keine_ketten(self):
+        # n1 und n3 liegen 180 m auseinander, n2 dazwischen: n2 geht in n1 auf,
+        # n3 bleibt, weil es von n1 zu weit weg ist.
+        schritt = 0.00081  # etwa 90 m
+        e = [ort('n1', 'A'), ort('n2', 'A', lat=50.9 + schritt), ort('n3', 'A', lat=50.9 + 2 * schritt)]
+        self.assertEqual(self.ids(e), ['n1', 'n3'])
+
+    def test_reihenfolge_bleibt(self):
+        e = [ort('n5', 'B', k='fairteiler'), ort('n1', 'A'), ort('n3', 'C', k='refill'), ort('n2', 'A')]
+        self.assertEqual(self.ids(e), ['n5', 'n1', 'n3'])
+
+    def test_umwandeln_fuehrt_zusammen_und_zaehlt(self):
+        roh = {'osm3s': {'timestamp_osm_base': '2026-11-09T18:00:00Z'}, 'elements': [
+            knoten(1, {'leisure': 'garden', 'garden:type': 'community', 'name': 'Querbeet'}),
+            knoten(2, {'leisure': 'garden', 'garden:type': 'community', 'name': 'Quer beet',
+                       'opening_hours': 'Sa 10:00-14:00'}, lat=50.93759 + 0.0005),
+            knoten(3, {'amenity': 'drinking_water'}), knoten(4, {'amenity': 'drinking_water'})]}
+        d, zusammen = hole_orte.umwandeln(roh)
+        self.assertEqual([e['id'] for e in d['eintraege']], ['n2', 'n3', 'n4'])
+        self.assertEqual(zusammen, {'garten': 1})
+        zeilen = hole_orte.zusammenfassung('de', d, zusammen)
+        self.assertEqual(len(zeilen), len(orte.ART_NAMEN) + 1)
+        self.assertIn('garten', zeilen[0])
+        self.assertTrue(zeilen[0].endswith('1  (1 zusammengeführt)'), zeilen[0])
+        self.assertTrue(zeilen[-1].endswith('3  (1 zusammengeführt)'), zeilen[-1])
 
 
 HEUTE = datetime.date(2026, 11, 9)

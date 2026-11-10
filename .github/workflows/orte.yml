@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 3 * * 1'   # montags 03:00 UTC
   workflow_dispatch:
+    inputs:
+      quelle:
+        description: 'Quelle der Orte (overpass nur für einen Handstart)'
+        type: choice
+        options: [geofabrik, overpass]
+        default: geofabrik
 
 permissions:
   contents: read
@@ -24,9 +30,13 @@ jobs:
           python-version: '3.12'
       - name: Tests
         run: python3 -m unittest discover -s tests
-      - name: pyosmium für den Rückfall auf Geofabrik
+      - name: pyosmium für den Geofabrik-Auszug
         run: python3 -m pip install osmium
-      - name: Orte holen (Overpass, sonst Geofabrik-Auszug)
+      - name: Orte holen (Geofabrik-Auszug, von Hand auch Overpass)
+        env:
+          # Geltende Quelle seit dem 10.11.2026; zeitgesteuert gibt es keine
+          # Eingaben, dann gilt geofabrik.
+          ORTE_QUELLE: ${{ inputs.quelle || 'geofabrik' }}
         run: python3 tools/hole_orte.py ausgabe
       - name: Prüfen gegen die veröffentlichte Fassung
         run: python3 tools/pruefe_orte.py ausgabe "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"

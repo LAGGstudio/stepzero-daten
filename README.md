@@ -19,8 +19,14 @@ selbst (<https://www.openstreetmap.org>); die nächste wöchentliche Abfrage
 
 ## Dateien
 
-Auf GitHub Pages (nicht im Repo): `de.json`, `at.json`, `ch.json` und eine
-Übersicht `index.html`. Jede Datei ist kompaktes JSON:
+Auf GitHub Pages (nicht im Repo) unter <https://laggstudio.github.io/stepzero-daten/>:
+[`de.json`](https://laggstudio.github.io/stepzero-daten/de.json),
+[`at.json`](https://laggstudio.github.io/stepzero-daten/at.json),
+[`ch.json`](https://laggstudio.github.io/stepzero-daten/ch.json) und eine
+[Übersicht](https://laggstudio.github.io/stepzero-daten/) (`index.html`). Das
+Repo liegt seit dem 10.11.2026 unter <https://github.com/LAGGstudio/stepzero-daten>;
+die frühere Adresse unter moonblazer420 gilt nicht mehr. Jede Datei ist
+kompaktes JSON:
 
 ```json
 {"stand":"2026-11-09","lizenz":"ODbL 1.0, © OpenStreetMap-Mitwirkende, https://www.openstreetmap.org/copyright",
@@ -59,37 +65,65 @@ nur 53-mal und in Deutschland 2-mal in Gebrauch, `amenity=library_of_things`
 ist nicht dokumentiert (2), `amenity=toy_library` meint Spielzeug und
 `shop=rental` gewerbliche Vermietung (taginfo, 9.11.2026).
 
+## Doppelte
+
+OpenStreetMap enthält manche Orte mehrfach (am 9.11.2026 in Deutschland 90
+Paare gleicher Art und gleichen Namens unter 100 m, etwa zwei „Querbeet“ in
+Köln 17 m auseinander). Die Pipeline führt sie zusammen
+(`tools/orte.py`, `doppelte_zusammenfuehren`):
+
+- gleich sind Einträge derselben Art mit demselben Namen, verglichen klein und
+  ohne Leer- und Satzzeichen („Quer-Beet“ = „querbeet“), unter 100 m
+  (Haversine, Erdradius 6371,0088 km wie in der App);
+- behalten wird der Eintrag mit den meisten Angaben (Adresse, Öffnungszeiten),
+  bei Gleichstand der mit der kleineren ID (erst Knoten, dann Weg, dann
+  Relation, darin die kleinere Nummer);
+- jeder weitere fällt nur weg, wenn er unter 100 m von einem behaltenen liegt;
+  so entstehen keine Ketten über mehrere hundert Meter;
+- Einträge ohne Namen werden nie zusammengeführt (die meisten Trinkbrunnen).
+
+Jeder Lauf gibt je Land und Art die Anzahl und die Zahl der zusammengeführten
+aus.
+
 ## Ablauf
 
 GitHub Actions (`.github/workflows/orte.yml`) läuft montags um 03:00 UTC und
-per Hand: Tests, je Land eine Overpass-Abfrage (`tools/hole_orte.py`, Server
-`overpass.private.coffee`, änderbar über `OVERPASS_URL`,
-User-Agent `StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit 180 s,
-eine Wiederholung nach 60 s, Pause zwischen den Ländern; eine Antwort mit
-Fehlerhinweis, ohne Elemente oder mit einem Datenstand älter als 7 Tage gilt
-als gescheitert, dann der Geofabrik-Auszug), Prüfung gegen die veröffentlichte
-Fassung (`tools/pruefe_orte.py`: Schema, Koordinaten im Land, höchstens 8 MB,
-je Land mindestens 1000 Einträge, Stand höchstens 30 Tage alt, keine Art fällt
-um mehr als 30 %), dann die Übersicht und die
+per Hand: Tests, je Land der tägliche Geofabrik-Auszug (`tools/hole_orte.py`
+mit `tools/geofabrik.py`, siehe unten), Zusammenführen der Doppelten, Prüfung
+gegen die veröffentlichte Fassung (`tools/pruefe_orte.py`: Schema, Koordinaten
+im Land, höchstens 8 MB, je Land mindestens 1000 Einträge, Stand höchstens 30
+Tage alt, keine Art fällt um mehr als 30 %), dann die Übersicht und die
 Veröffentlichung auf GitHub Pages. Schlägt die Prüfung fehl, bleibt die alte
 Fassung online.
 
 Lokal: `python3 -m unittest discover -s tests`, `python3 tools/hole_orte.py`,
 `python3 tools/pruefe_orte.py ausgabe [vorher]`, `python3 tools/seite_bauen.py`.
-Nur Python-Standardbibliothek.
+Bis auf pyosmium für den Auszug nur Python-Standardbibliothek.
 
-### Rückfall: Geofabrik-Auszug
+### Hauptquelle: Geofabrik-Auszug
 
-Scheitern beide Overpass-Versuche eines Lands, liest `tools/hole_orte.py` den
-täglichen Auszug von Geofabrik (`download.geofabrik.de/europe/germany`,
-`austria`, `switzerland`, `.osm.pbf`) mit pyosmium (`tools/geofabrik.py`,
-`pip install osmium`): dieselben Etiketten und Ausschlüsse, bei Wegen und
-Relationen die Mitte des umschließenden Rechtecks wie bei Overpass `center`,
-`stand` aus dem Zeitstempel des Auszugs. Das OSM-Wiki empfiehlt Auszüge plus
-osmium ausdrücklich, wenn man viele Daten braucht. Die Auszüge folgen den
-Grenzen mit einem kleinen Saum; die Prüfung fängt nur grobe Ausreißer.
-`ORTE_QUELLE=geofabrik` nimmt direkt den Auszug, `ORTE_QUELLE=overpass` lässt
-den Rückfall weg.
+Seit dem 10.11.2026 liest `tools/hole_orte.py` den täglichen Auszug von
+Geofabrik (`download.geofabrik.de/europe/germany`, `austria`, `switzerland`,
+`.osm.pbf`) mit pyosmium (`tools/geofabrik.py`, `pip install osmium`):
+dieselben Etiketten und Ausschlüsse, bei Wegen und Relationen die Mitte des
+umschließenden Rechtecks wie bei Overpass `center`, `stand` aus dem
+Zeitstempel des Auszugs. Das OSM-Wiki empfiehlt Auszüge plus osmium
+ausdrücklich, wenn man viele Daten braucht. Die Auszüge folgen den Grenzen mit
+einem kleinen Saum; die Prüfung fängt nur grobe Ausreißer.
+
+### Overpass nur von Hand
+
+Overpass bleibt als Code für einen Handstart: `ORTE_QUELLE=overpass python3
+tools/hole_orte.py` bzw. im Workflow „Run workflow“ mit Quelle `overpass`.
+Dann gibt es keinen Rückfall auf den Auszug: Scheitert die Abfrage, scheitert
+der Lauf und nichts wird veröffentlicht. Server `overpass.private.coffee`
+(änderbar über `OVERPASS_URL`), User-Agent
+`StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit 180 s, eine
+Wiederholung nach 60 s, 30 s Pause zwischen den Ländern; eine Antwort mit
+Fehlerhinweis, ohne Elemente oder mit einem Datenstand älter als 7 Tage gilt
+als gescheitert. Am 9.11.2026 war Overpass in allen drei Läufen überlastet
+oder lieferte veraltete Daten (private.coffee: Stand Juni, für DE leer), darum
+ist der Auszug die Hauptquelle.
 
 ### Warum nicht overpass-api.de
 
@@ -100,6 +134,4 @@ bittet dort bei regelmäßiger Nutzung um ein Hundertstel der üblichen Grenzen 
 schreibt „Commercial use should use self-hosted or paid Overpass servers“; Step Zero
 verkauft Pro. Private.coffee schreibt im selben Wiki: „Feel free to use our
 service in any project, there is no rate limit in place. Please notify us in
-advance if you intend to use our service in a large scale project.“ Drei Abfragen
-pro Woche sind kein großes Projekt. Wächst der Bedarf: eigene Instanz oder
-Geofabrik-Auszüge mit osmium (ebenfalls im Wiki empfohlen).
+advance if you intend to use our service in a large scale project.“

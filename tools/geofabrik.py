@@ -1,5 +1,6 @@
-"""Rückfall für tools/hole_orte.py: die Orte eines Lands aus dem Geofabrik-Auszug
-(.osm.pbf) statt über Overpass, gelesen mit pyosmium (`pip install osmium`).
+"""Hauptquelle für tools/hole_orte.py (seit dem 10.11.2026, vorher Rückfall):
+die Orte eines Lands aus dem Geofabrik-Auszug (.osm.pbf), gelesen mit pyosmium
+(`pip install osmium`).
 
 Das OSM-Wiki empfiehlt Auszüge plus osmium, wenn man viele Daten braucht oder
 die öffentlichen Overpass-Server überlastet sind (am 9.11.2026 alle drei).
