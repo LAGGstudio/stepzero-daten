@@ -205,7 +205,8 @@ class Doppelte(unittest.TestCase):
             'brunnen', 'trinkbrunnen', 'trinkwasser', 'wasser', 'wasch', 'giesswasser',
             'wasserstelle', 'buecherschrank', 'offenerbuecherschrank', 'buecherbox',
             'buecherzelle', 'givebox', 'verschenkbox', 'verschenkregal', 'fairteiler',
-            'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill']))
+            'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill',
+            'wasserhahn', 'fontana', 'fontaine', 'fontaene', 'laufbrunnen', 'zierbrunnen']))
         for n in orte.ALLERWELTSNAMEN:
             self.assertEqual(name_schluessel(n), n, 'normalisiert wie beim Vergleich')
         self.assertEqual(set(orte.STANDARDNAMEN), set(orte.ART_NAMEN), 'jede Art')
@@ -216,33 +217,37 @@ class Doppelte(unittest.TestCase):
                         ('buecherschrank', 'Offener Bücherschrank'), ('buecherschrank', 'Bücher-Box'),
                         ('buecherschrank', 'Bücherzelle'), ('verschenkbox', 'Give-Box'),
                         ('fairteiler', 'Foodsharing'), ('garten', 'Garten'),
-                        ('repaircafe', 'Repair Café'), ('refill', 'REFILL')):
-            self.assertTrue(allerweltsname(k, name), name)
+                        ('repaircafe', 'Repair Café'), ('refill', 'REFILL'),
+                        ('trinkbrunnen', 'Wasserhahn'), ('trinkbrunnen', 'Fontana'),
+                        ('trinkbrunnen', 'Fontaine'), ('trinkbrunnen', 'Fontäne'),
+                        ('trinkbrunnen', 'Lauf-Brunnen'), ('trinkbrunnen', 'Zierbrunnen')):
+            self.assertTrue(allerweltsname(name), name)
             e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
             self.assertEqual(self.ids(e), ['n1', 'n2'], name)
         # Gegenprobe: ein Name, der nur ein Allerweltswort enthält, ist eigen.
         for k, name in (('trinkbrunnen', 'Brunnen am Markt'), ('buecherschrank', 'Bücherschrank am Ring'),
-                        ('garten', 'Garten am Mer')):
-            self.assertFalse(allerweltsname(k, name), name)
+                        ('garten', 'Garten am Mer'), ('trinkbrunnen', 'Fontana di Piazza'),
+                        ('trinkbrunnen', 'Wasserhahn Friedhof Süd')):
+            self.assertFalse(allerweltsname(name), name)
             e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
             self.assertEqual(self.ids(e), ['n1'], name)
 
-    def test_standardname_der_eigenen_art(self):
-        # Die Standardnamen der App, deutsch und englisch, zählen nur für ihre Art.
-        for k, name in (('trinkbrunnen', 'Drinking fountain'), ('buecherschrank', 'Public bookcase'),
-                        ('refill', 'Refill-Station'), ('refill', 'Refill station'),
-                        ('verschenkbox', 'Give box'), ('fairteiler', 'Food-sharing point'),
-                        ('garten', 'Community garden'), ('repaircafe', 'Repair café')):
-            self.assertTrue(allerweltsname(k, name), (k, name))
-            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
-            self.assertEqual(self.ids(e), ['n1', 'n2'], name)
-        # Gegenprobe: der Standardname einer anderen Art (so am 10.11.2026 zwei
-        # Trinkbrunnen namens „Refill-Station“) wird zusammengeführt.
-        self.assertFalse(allerweltsname('trinkbrunnen', 'Refill-Station'))
-        self.assertFalse(allerweltsname('garten', 'Drinking fountain'))
-        e = [ort('n1', 'Refill-Station', k='trinkbrunnen'),
-             ort('n2', 'Refill-Station', k='trinkbrunnen', lat=50.9 + 0.0001)]
-        self.assertEqual(self.ids(e), ['n1'])
+    def test_standardnamen_gelten_fuer_jede_art(self):
+        # Die Standardnamen der App, deutsch und englisch, seit Runde 39 für
+        # jede Art: auch zwei Trinkbrunnen namens „Refill-Station“ bleiben zwei
+        # (so am 10.11.2026 in DE) und ein Garten namens „Drinking fountain“.
+        alle = [(k, n) for k, namen in orte.STANDARDNAMEN.items() for n in namen]
+        self.assertEqual(len(alle), 14)
+        for k_name, name in alle:
+            for k in orte.ART_NAMEN:
+                self.assertTrue(allerweltsname(name), name)
+                e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
+                self.assertEqual(self.ids(e), ['n1', 'n2'], (k, name))
+        # Gegenprobe: ein Name, der einen Standardnamen nur enthält, ist eigen.
+        for name in ('Refill-Station am Markt', 'Trinkbrunnen Domplatte', 'Community garden Ehrenfeld'):
+            self.assertFalse(allerweltsname(name), name)
+            e = [ort('n1', name, k='trinkbrunnen'), ort('n2', name, k='trinkbrunnen', lat=50.9 + 0.0001)]
+            self.assertEqual(self.ids(e), ['n1'], name)
 
     def test_gleiche_art_gleicher_name_unter_100_m(self):
         e = [ort('n1', 'Querbeet'), ort('n2', 'querbeet', lat=self.NAH)]

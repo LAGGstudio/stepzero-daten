@@ -92,18 +92,23 @@ ERDRADIUS_M = 6371008.8  # wie die App (lib/logic/orte_naehe.dart)
 # weg („Repair-Café“ → repaircafe).
 _UMSCHRIFT = str.maketrans({'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'})
 
-# Allerweltsnamen (Runde 38): Zwei Brunnen namens „Brunnen“ 50 m auseinander
-# sind meist zwei Brunnen, keine Doppel (am 10.11.2026 fielen so etwa
-# „Wasch“ 9-mal und „Gießwasser“ 4-mal auf Friedhöfen weg). Schon normalisiert.
+# Allerweltsnamen (Runde 38, ergänzt in Runde 39): Zwei Brunnen namens
+# „Brunnen“ 50 m auseinander sind meist zwei Brunnen, keine Doppel (am
+# 10.11.2026 fielen so etwa „Wasch“ 9-mal und „Gießwasser“ 4-mal auf
+# Friedhöfen weg). Schon normalisiert.
 ALLERWELTSNAMEN = frozenset({
     'brunnen', 'trinkbrunnen', 'trinkwasser', 'wasser', 'wasch', 'giesswasser',
     'wasserstelle', 'buecherschrank', 'offenerbuecherschrank', 'buecherbox',
     'buecherzelle', 'givebox', 'verschenkbox', 'verschenkregal', 'fairteiler',
     'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill',
+    'wasserhahn', 'fontana', 'fontaine', 'fontaene', 'laufbrunnen', 'zierbrunnen',
 })
 
-# Dazu je Art der Standardname, den die App ohne Namen zeigt, deutsch und
-# englisch (lib/l10n/app_de.arb bzw. app_en.arb, ortGarten … ortRefill).
+# Dazu die Standardnamen, die die App für Orte ohne Namen zeigt, deutsch und
+# englisch; seit Runde 39 gelten sie für jede Art (zwei Trinkbrunnen namens
+# „Refill-Station“ bleiben zwei). Gehört zusammen mit ortGarten … ortRefill in
+# lib/l10n/app_de.arb und app_en.arb der App: Wer das eine ändert, ändert das
+# andere (CLAUDE.md beider Repos).
 STANDARDNAMEN = {
     'garten': ('Gemeinschaftsgarten', 'Community garden'),
     'fairteiler': ('Fairteiler', 'Food-sharing point'),
@@ -124,11 +129,13 @@ def name_schluessel(name):
                    and not unicodedata.category(c).startswith('P'))
 
 
-def allerweltsname(k, name):
-    """Ein Name aus ALLERWELTSNAMEN oder der Standardname der Art `k` in der App."""
+_STANDARD_SCHLUESSEL = frozenset(name_schluessel(n) for namen in STANDARDNAMEN.values() for n in namen)
+
+
+def allerweltsname(name):
+    """Ein Name aus ALLERWELTSNAMEN oder ein Standardname irgendeiner Art."""
     schluessel = name_schluessel(name)
-    return (schluessel in ALLERWELTSNAMEN
-            or schluessel in {name_schluessel(n) for n in STANDARDNAMEN.get(k, ())})
+    return schluessel in ALLERWELTSNAMEN or schluessel in _STANDARD_SCHLUESSEL
 
 
 def abstand_m(a, b):
@@ -160,7 +167,7 @@ def doppelte_zusammenfuehren(eintraege):
     Die Reihenfolge der behaltenen bleibt wie in `eintraege`."""
     gruppen = {}
     for e in eintraege:
-        if e.get('name') and not allerweltsname(e['k'], e['name']):
+        if e.get('name') and not allerweltsname(e['name']):
             schluessel = name_schluessel(e['name'])
             if schluessel:
                 gruppen.setdefault((e['k'], schluessel), []).append(e)

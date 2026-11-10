@@ -87,11 +87,14 @@ Köln 17 m auseinander). Die Pipeline führt sie zusammen
   `trinkbrunnen`, `trinkwasser`, `wasser`, `wasch`, `giesswasser`,
   `wasserstelle`, `buecherschrank`, `offenerbuecherschrank`, `buecherbox`,
   `buecherzelle`, `givebox`, `verschenkbox`, `verschenkregal`, `fairteiler`,
-  `foodsharing`, `gemeinschaftsgarten`, `garten`, `repaircafe`, `refill`
-  (normalisiert wie beim Vergleich), dazu der Name, den die App für die Art
-  zeigt, wenn ein Ort keinen hat, deutsch oder englisch (etwa „Trinkbrunnen“
-  bzw. „Drinking fountain“ bei Trinkbrunnen). Zwei „Brunnen“ 50 m
-  auseinander sind meist zwei Brunnen.
+  `foodsharing`, `gemeinschaftsgarten`, `garten`, `repaircafe`, `refill`,
+  `wasserhahn`, `fontana`, `fontaine`, `fontaene`, `laufbrunnen`,
+  `zierbrunnen` (normalisiert wie beim Vergleich), dazu die Namen, die die App
+  für Orte ohne Namen zeigt, deutsch oder englisch, für jede Art (etwa
+  „Trinkbrunnen“, „Drinking fountain“, „Refill-Station“). Zwei „Brunnen“ 50 m
+  auseinander sind meist zwei Brunnen. Diese Standardnamen (`STANDARDNAMEN`
+  in `tools/orte.py`) gehören zu `ortGarten` … `ortRefill` in den ARB-Dateien
+  der App; wer das eine ändert, ändert das andere.
 
 Jeder Lauf gibt je Land und Art die Anzahl und die Zahl der zusammengeführten
 aus.
