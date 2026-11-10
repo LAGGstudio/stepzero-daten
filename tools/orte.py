@@ -82,15 +82,53 @@ def eintrag(element):
 # Doppelte: OSM enthält denselben Ort mehrfach (am 9.11.2026 in DE 91 Paare
 # gleicher Art und gleichen Namens unter etwa 100 m, z. B. dreimal „Querbeet“
 # in Köln). Gleich sind Einträge derselben Art mit demselben Namen (klein, ohne
-# Leer- und Satzzeichen) unter DOPPEL_ABSTAND_M; ohne Namen nie.
+# Leer- und Satzzeichen) unter DOPPEL_ABSTAND_M; ohne Namen und mit einem
+# Allerweltsnamen nie.
 DOPPEL_ABSTAND_M = 100
 ERDRADIUS_M = 6371008.8  # wie die App (lib/logic/orte_naehe.dart)
 
+# Umlaute und ß wie in den Schritt-IDs der App (ä→ae …), damit die Liste
+# unten in ASCII greift („Gießwasser“ → giesswasser); andere Akzente fallen
+# weg („Repair-Café“ → repaircafe).
+_UMSCHRIFT = str.maketrans({'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'})
+
+# Allerweltsnamen (Runde 38): Zwei Brunnen namens „Brunnen“ 50 m auseinander
+# sind meist zwei Brunnen, keine Doppel (am 10.11.2026 fielen so etwa
+# „Wasch“ 9-mal und „Gießwasser“ 4-mal auf Friedhöfen weg). Schon normalisiert.
+ALLERWELTSNAMEN = frozenset({
+    'brunnen', 'trinkbrunnen', 'trinkwasser', 'wasser', 'wasch', 'giesswasser',
+    'wasserstelle', 'buecherschrank', 'offenerbuecherschrank', 'buecherbox',
+    'buecherzelle', 'givebox', 'verschenkbox', 'verschenkregal', 'fairteiler',
+    'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill',
+})
+
+# Dazu je Art der Standardname, den die App ohne Namen zeigt, deutsch und
+# englisch (lib/l10n/app_de.arb bzw. app_en.arb, ortGarten … ortRefill).
+STANDARDNAMEN = {
+    'garten': ('Gemeinschaftsgarten', 'Community garden'),
+    'fairteiler': ('Fairteiler', 'Food-sharing point'),
+    'verschenkbox': ('Verschenkbox', 'Give box'),
+    'buecherschrank': ('Bücherschrank', 'Public bookcase'),
+    'repaircafe': ('Repair-Café', 'Repair café'),
+    'trinkbrunnen': ('Trinkbrunnen', 'Drinking fountain'),
+    'refill': ('Refill-Station', 'Refill station'),
+}
+
 
 def name_schluessel(name):
-    """Klein, ohne Leer- und Satzzeichen: „Quer-Beet “ und „querbeet“ sind gleich."""
-    return ''.join(c for c in name.lower()
-                   if not c.isspace() and not unicodedata.category(c).startswith('P'))
+    """Klein, Umlaute umschrieben, ohne Akzente, Leer- und Satzzeichen:
+    „Quer-Beet “ = „querbeet“, „Gießwasser“ = „giesswasser“."""
+    zerlegt = unicodedata.normalize('NFKD', name.lower().translate(_UMSCHRIFT))
+    return ''.join(c for c in zerlegt
+                   if not unicodedata.combining(c) and not c.isspace()
+                   and not unicodedata.category(c).startswith('P'))
+
+
+def allerweltsname(k, name):
+    """Ein Name aus ALLERWELTSNAMEN oder der Standardname der Art `k` in der App."""
+    schluessel = name_schluessel(name)
+    return (schluessel in ALLERWELTSNAMEN
+            or schluessel in {name_schluessel(n) for n in STANDARDNAMEN.get(k, ())})
 
 
 def abstand_m(a, b):
@@ -118,10 +156,11 @@ def doppelte_zusammenfuehren(eintraege):
     den meisten Angaben, bei Gleichstand der mit der kleineren ID; jeder
     weitere unter DOPPEL_ABSTAND_M von einem behaltenen fällt weg. So liegt
     jeder weggefallene Eintrag nah an dem, der ihn ersetzt (keine Ketten).
+    Einträge ohne Namen oder mit einem Allerweltsnamen bleiben alle.
     Die Reihenfolge der behaltenen bleibt wie in `eintraege`."""
     gruppen = {}
     for e in eintraege:
-        if e.get('name'):
+        if e.get('name') and not allerweltsname(e['k'], e['name']):
             schluessel = name_schluessel(e['name'])
             if schluessel:
                 gruppen.setdefault((e['k'], schluessel), []).append(e)

@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 import hole_orte  # noqa: E402
 import pruefe_orte  # noqa: E402
 import orte  # noqa: E402
-from orte import abstand_m, adresse, art, ausgeschlossen, doppelte_zusammenfuehren, eintrag, name_schluessel  # noqa: E402
+from orte import abstand_m, adresse, allerweltsname, art, ausgeschlossen, doppelte_zusammenfuehren, eintrag, name_schluessel  # noqa: E402
 
 
 def knoten(i, tags, lat=50.93759, lon=6.96016):
@@ -190,6 +190,59 @@ class Doppelte(unittest.TestCase):
         # Gegenprobe: Buchstaben und Ziffern bleiben.
         self.assertNotEqual(name_schluessel('Garten 1'), name_schluessel('Garten 2'))
         self.assertNotEqual(name_schluessel('Rosengarten'), name_schluessel('Rosen garten Süd'))
+
+    def test_name_schluessel_umschrift(self):
+        self.assertEqual(name_schluessel('Gießwasser'), 'giesswasser')
+        self.assertEqual(name_schluessel('Repair-Café'), 'repaircafe')
+        self.assertEqual(name_schluessel('Offener Bücherschrank'), 'offenerbuecherschrank')
+        self.assertEqual(name_schluessel('Bücherschrank'), name_schluessel('Buecherschrank'))
+        self.assertEqual(name_schluessel('GÄRTEN'), 'gaerten')
+        # Gegenprobe: ohne Umlaut bleibt der Name, wie er ist.
+        self.assertNotEqual(name_schluessel('Garten'), name_schluessel('Gärten'))
+
+    def test_liste_der_allerweltsnamen(self):
+        self.assertEqual(sorted(orte.ALLERWELTSNAMEN), sorted([
+            'brunnen', 'trinkbrunnen', 'trinkwasser', 'wasser', 'wasch', 'giesswasser',
+            'wasserstelle', 'buecherschrank', 'offenerbuecherschrank', 'buecherbox',
+            'buecherzelle', 'givebox', 'verschenkbox', 'verschenkregal', 'fairteiler',
+            'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill']))
+        for n in orte.ALLERWELTSNAMEN:
+            self.assertEqual(name_schluessel(n), n, 'normalisiert wie beim Vergleich')
+        self.assertEqual(set(orte.STANDARDNAMEN), set(orte.ART_NAMEN), 'jede Art')
+
+    def test_allerweltsnamen_nie_zusammenfuehren(self):
+        for k, name in (('trinkbrunnen', 'Brunnen'), ('trinkbrunnen', 'Gießwasser'),
+                        ('trinkbrunnen', 'Wasch'), ('trinkbrunnen', 'Wasser-Stelle'),
+                        ('buecherschrank', 'Offener Bücherschrank'), ('buecherschrank', 'Bücher-Box'),
+                        ('buecherschrank', 'Bücherzelle'), ('verschenkbox', 'Give-Box'),
+                        ('fairteiler', 'Foodsharing'), ('garten', 'Garten'),
+                        ('repaircafe', 'Repair Café'), ('refill', 'REFILL')):
+            self.assertTrue(allerweltsname(k, name), name)
+            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
+            self.assertEqual(self.ids(e), ['n1', 'n2'], name)
+        # Gegenprobe: ein Name, der nur ein Allerweltswort enthält, ist eigen.
+        for k, name in (('trinkbrunnen', 'Brunnen am Markt'), ('buecherschrank', 'Bücherschrank am Ring'),
+                        ('garten', 'Garten am Mer')):
+            self.assertFalse(allerweltsname(k, name), name)
+            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
+            self.assertEqual(self.ids(e), ['n1'], name)
+
+    def test_standardname_der_eigenen_art(self):
+        # Die Standardnamen der App, deutsch und englisch, zählen nur für ihre Art.
+        for k, name in (('trinkbrunnen', 'Drinking fountain'), ('buecherschrank', 'Public bookcase'),
+                        ('refill', 'Refill-Station'), ('refill', 'Refill station'),
+                        ('verschenkbox', 'Give box'), ('fairteiler', 'Food-sharing point'),
+                        ('garten', 'Community garden'), ('repaircafe', 'Repair café')):
+            self.assertTrue(allerweltsname(k, name), (k, name))
+            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
+            self.assertEqual(self.ids(e), ['n1', 'n2'], name)
+        # Gegenprobe: der Standardname einer anderen Art (so am 10.11.2026 zwei
+        # Trinkbrunnen namens „Refill-Station“) wird zusammengeführt.
+        self.assertFalse(allerweltsname('trinkbrunnen', 'Refill-Station'))
+        self.assertFalse(allerweltsname('garten', 'Drinking fountain'))
+        e = [ort('n1', 'Refill-Station', k='trinkbrunnen'),
+             ort('n2', 'Refill-Station', k='trinkbrunnen', lat=50.9 + 0.0001)]
+        self.assertEqual(self.ids(e), ['n1'])
 
     def test_gleiche_art_gleicher_name_unter_100_m(self):
         e = [ort('n1', 'Querbeet'), ort('n2', 'querbeet', lat=self.NAH)]

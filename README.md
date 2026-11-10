@@ -72,15 +72,26 @@ Paare gleicher Art und gleichen Namens unter 100 m, etwa zwei „Querbeet“ in
 Köln 17 m auseinander). Die Pipeline führt sie zusammen
 (`tools/orte.py`, `doppelte_zusammenfuehren`):
 
-- gleich sind Einträge derselben Art mit demselben Namen, verglichen klein und
-  ohne Leer- und Satzzeichen („Quer-Beet“ = „querbeet“), unter 100 m
-  (Haversine, Erdradius 6371,0088 km wie in der App);
+- gleich sind Einträge derselben Art mit demselben Namen, verglichen klein,
+  mit umschriebenen Umlauten (ä→ae, ö→oe, ü→ue, ß→ss), ohne andere Akzente
+  und ohne Leer- und Satzzeichen („Quer-Beet“ = „querbeet“, „Gießwasser“ =
+  „giesswasser“), unter 100 m (Haversine, Erdradius 6371,0088 km wie in der
+  App);
 - behalten wird der Eintrag mit den meisten Angaben (Adresse, Öffnungszeiten),
   bei Gleichstand der mit der kleineren ID (erst Knoten, dann Weg, dann
   Relation, darin die kleinere Nummer);
 - jeder weitere fällt nur weg, wenn er unter 100 m von einem behaltenen liegt;
   so entstehen keine Ketten über mehrere hundert Meter;
-- Einträge ohne Namen werden nie zusammengeführt (die meisten Trinkbrunnen).
+- Einträge ohne Namen werden nie zusammengeführt (die meisten Trinkbrunnen),
+  ebenso Einträge mit einem Allerweltsnamen (seit dem 10.11.2026): `brunnen`,
+  `trinkbrunnen`, `trinkwasser`, `wasser`, `wasch`, `giesswasser`,
+  `wasserstelle`, `buecherschrank`, `offenerbuecherschrank`, `buecherbox`,
+  `buecherzelle`, `givebox`, `verschenkbox`, `verschenkregal`, `fairteiler`,
+  `foodsharing`, `gemeinschaftsgarten`, `garten`, `repaircafe`, `refill`
+  (normalisiert wie beim Vergleich), dazu der Name, den die App für die Art
+  zeigt, wenn ein Ort keinen hat, deutsch oder englisch (etwa „Trinkbrunnen“
+  bzw. „Drinking fountain“ bei Trinkbrunnen). Zwei „Brunnen“ 50 m
+  auseinander sind meist zwei Brunnen.
 
 Jeder Lauf gibt je Land und Art die Anzahl und die Zahl der zusammengeführten
 aus.
