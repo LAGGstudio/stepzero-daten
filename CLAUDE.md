@@ -1,7 +1,8 @@
 # stepzero-daten – Regeln für Claude Code
 
-Öffentliches Daten-Repo der App Step Zero (App-Repo `~/StepZero`, dort die
-ausführliche CLAUDE.md, Abschnitt „Lokal V1.5b“). Hier entstehen wöchentlich
+Öffentliches Daten-Repo der App Step Zero (App-Repo `~/StepZero`, dort
+ausführlich in `docs/claude/lokal.md`, Abschnitt „Lokal V1.5b“; bis 10.11.2026
+stand das in der CLAUDE.md des App-Repos). Hier entstehen wöchentlich
 die Orte-Dateien `de.json`, `at.json`, `ch.json` aus OpenStreetMap
 (ODbL), veröffentlicht unter `https://laggstudio.github.io/stepzero-daten/`.
 Ablauf, Arten, Etiketten und Prüfungen stehen im README.

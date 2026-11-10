@@ -108,7 +108,7 @@ ALLERWELTSNAMEN = frozenset({
 # englisch; seit Runde 39 gelten sie für jede Art (zwei Trinkbrunnen namens
 # „Refill-Station“ bleiben zwei). Gehört zusammen mit ortGarten … ortRefill in
 # lib/l10n/app_de.arb und app_en.arb der App: Wer das eine ändert, ändert das
-# andere (CLAUDE.md beider Repos).
+# andere (CLAUDE.md hier, docs/claude/lokal.md im App-Repo).
 STANDARDNAMEN = {
     'garten': ('Gemeinschaftsgarten', 'Community garden'),
     'fairteiler': ('Fairteiler', 'Food-sharing point'),
