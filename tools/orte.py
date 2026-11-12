@@ -87,8 +87,10 @@ def eintrag(element):
 # gleicher Art und gleichen Namens unter etwa 100 m, z. B. dreimal „Querbeet“
 # in Köln). Gleich sind Einträge derselben Art mit demselben Namen (klein, ohne
 # Leer- und Satzzeichen) unter DOPPEL_ABSTAND_M; ohne Namen und mit einem
-# Allerweltsnamen nie.
-DOPPEL_ABSTAND_M = 100
+# Allerweltsnamen nie. Seit dem 12.11.2026 200 m statt 100 m: Der Garten
+# „Querbeet“ in Köln (Betreiber Querbeet e.V., drei Knoten aus einem
+# Changeset) blieb mit zwei Knoten 113 m auseinander doppelt in der App.
+DOPPEL_ABSTAND_M = 200
 ERDRADIUS_M = 6371008.8  # wie die App (lib/logic/orte_naehe.dart)
 
 # Umlaute und ß wie in den Schritt-IDs der App (ä→ae …), damit die Liste

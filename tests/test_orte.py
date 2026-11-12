@@ -187,15 +187,17 @@ def ort(i, name=None, lat=50.9, lon=6.9, k='garten', **mehr):
 
 
 class Doppelte(unittest.TestCase):
-    # 0,00089° Breite sind bei 50,9° etwa 99 m, 0,00091° etwa 101 m.
-    NAH, WEIT = 50.9 + 0.00089, 50.9 + 0.00091
+    # 0,00179° Breite sind etwa 199 m, 0,00181° etwa 201 m (seit dem
+    # 12.11.2026 liegt die Grenze bei 200 m, vorher bei 100 m).
+    NAH, WEIT = 50.9 + 0.00179, 50.9 + 0.00181
 
     def ids(self, eintraege):
         return [e['id'] for e in doppelte_zusammenfuehren(eintraege)[0]]
 
     def test_abstaende_der_testpunkte(self):
-        self.assertLess(abstand_m(ort('n1'), ort('n2', lat=self.NAH)), 100)
-        self.assertGreater(abstand_m(ort('n1'), ort('n2', lat=self.WEIT)), 100)
+        self.assertEqual(orte.DOPPEL_ABSTAND_M, 200)
+        self.assertLess(abstand_m(ort('n1'), ort('n2', lat=self.NAH)), 200)
+        self.assertGreater(abstand_m(ort('n1'), ort('n2', lat=self.WEIT)), 200)
         # Gleiche Rechnung wie die App: 1° Breite = 111,195 km.
         self.assertAlmostEqual(abstand_m(ort('n1', lat=50), ort('n2', lat=51)), 111195.08, places=1)
 
@@ -265,14 +267,26 @@ class Doppelte(unittest.TestCase):
             e = [ort('n1', name, k='trinkbrunnen'), ort('n2', name, k='trinkbrunnen', lat=50.9 + 0.0001)]
             self.assertEqual(self.ids(e), ['n1'], name)
 
-    def test_gleiche_art_gleicher_name_unter_100_m(self):
+    def test_querbeet_koeln_eine_einrichtung(self):
+        # Die beiden Knoten, die am 12.11.2026 noch doppelt in der App
+        # standen (Pages-Stand 2026-11-11): gleiche Art, gleicher Name,
+        # 113 m auseinander, beide ohne Adresse und Öffnungszeiten; es bleibt
+        # die kleinere ID.
+        e = [ort('n11199147603', 'Querbeet', lat=50.9384, lon=6.93289),
+             ort('n11199147604', 'Querbeet', lat=50.93846, lon=6.9345)]
+        self.assertAlmostEqual(abstand_m(e[0], e[1]), 113.0, places=0)
+        behalten, zusammen = doppelte_zusammenfuehren(e)
+        self.assertEqual([x['id'] for x in behalten], ['n11199147603'])
+        self.assertEqual(zusammen, {'garten': 1})
+
+    def test_gleiche_art_gleicher_name_unter_200_m(self):
         e = [ort('n1', 'Querbeet'), ort('n2', 'querbeet', lat=self.NAH)]
         behalten, zusammen = doppelte_zusammenfuehren(e)
         self.assertEqual([x['id'] for x in behalten], ['n1'])
         self.assertEqual(zusammen, {'garten': 1})
 
     def test_gegenproben_nicht_zusammenfuehren(self):
-        # Knapp über 100 m.
+        # Knapp über 200 m.
         self.assertEqual(self.ids([ort('n1', 'Querbeet'), ort('n2', 'Querbeet', lat=self.WEIT)]), ['n1', 'n2'])
         # Andere Art, gleicher Name, gleiche Stelle.
         self.assertEqual(self.ids([ort('n1', 'Am Markt', k='trinkbrunnen'),
@@ -303,9 +317,9 @@ class Doppelte(unittest.TestCase):
         self.assertEqual(self.ids([ort('r1', 'A'), ort('w7', 'A')]), ['w7'])
 
     def test_keine_ketten(self):
-        # n1 und n3 liegen 180 m auseinander, n2 dazwischen: n2 geht in n1 auf,
-        # n3 bleibt, weil es von n1 zu weit weg ist.
-        schritt = 0.00081  # etwa 90 m
+        # n1 und n3 liegen 360 m auseinander, n2 dazwischen: n2 geht in n1 auf,
+        # n3 bleibt, weil es von n1 zu weit weg ist (Grenze 200 m).
+        schritt = 0.00162  # etwa 180 m
         e = [ort('n1', 'A'), ort('n2', 'A', lat=50.9 + schritt), ort('n3', 'A', lat=50.9 + 2 * schritt)]
         self.assertEqual(self.ids(e), ['n1', 'n3'])
 

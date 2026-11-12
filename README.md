@@ -77,12 +77,13 @@ Köln 17 m auseinander). Die Pipeline führt sie zusammen
 - gleich sind Einträge derselben Art mit demselben Namen, verglichen klein,
   mit umschriebenen Umlauten (ä→ae, ö→oe, ü→ue, ß→ss), ohne andere Akzente
   und ohne Leer- und Satzzeichen („Quer-Beet“ = „querbeet“, „Gießwasser“ =
-  „giesswasser“), unter 100 m (Haversine, Erdradius 6371,0088 km wie in der
-  App);
+  „giesswasser“), unter 200 m (Haversine, Erdradius 6371,0088 km wie in der
+  App; bis zum 12.11.2026 unter 100 m, dann blieb der Garten „Querbeet“ in
+  Köln mit zwei Knoten 113 m auseinander doppelt);
 - behalten wird der Eintrag mit den meisten Angaben (Adresse, Öffnungszeiten),
   bei Gleichstand der mit der kleineren ID (erst Knoten, dann Weg, dann
   Relation, darin die kleinere Nummer);
-- jeder weitere fällt nur weg, wenn er unter 100 m von einem behaltenen liegt;
+- jeder weitere fällt nur weg, wenn er unter 200 m von einem behaltenen liegt;
   so entstehen keine Ketten über mehrere hundert Meter;
 - Einträge ohne Namen werden nie zusammengeführt (die meisten Trinkbrunnen),
   ebenso Einträge mit einem Allerweltsnamen (seit dem 10.11.2026): `brunnen`,
