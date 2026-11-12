@@ -21,7 +21,11 @@ ARTEN = (
 )
 ART_NAMEN = tuple(a for a, _ in ARTEN)
 
-LIZENZ = ('ODbL 1.0, © OpenStreetMap-Mitwirkende, '
+# Die ODbL verlangt in der Datenbank die Lizenz oder ihre URI (4.2.b); seit
+# dem 12.11.2026 steht die URI mit drin (Audit 11.10). Die App liest das Feld
+# nicht (nur `stand` und `eintraege`).
+ODBL_URI = 'https://opendatacommons.org/licenses/odbl/1-0/'
+LIZENZ = ('ODbL 1.0 (' + ODBL_URI + '), © OpenStreetMap-Mitwirkende, '
           'https://www.openstreetmap.org/copyright')
 
 # Grobe Umrisse (Breite, Länge) für die Plausibilitätsprüfung.

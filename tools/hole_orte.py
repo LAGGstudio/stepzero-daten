@@ -10,7 +10,7 @@ veraltete Daten.
   python3 tools/hole_orte.py [ausgabe] [de at ch]
   ORTE_QUELLE=overpass python3 tools/hole_orte.py
 """
-import json, os, sys, time, urllib.parse, urllib.request
+import json, os, re, sys, time, urllib.parse, urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from orte import ART_NAMEN, ARTEN, LAENDER, LIZENZ, doppelte_zusammenfuehren, eintrag  # noqa: E402
@@ -98,8 +98,14 @@ def overpass_holen(land):
     raise SystemExit('%s: Overpass nicht erreichbar' % land)
 
 
-def umwandeln(roh):
-    """Overpass-artiges Ergebnis → (Datei, Anzahl zusammengeführter je Art)."""
+def umwandeln(roh, land=''):
+    """Overpass-artiges Ergebnis → (Datei, Anzahl zusammengeführter je Art).
+    Ohne Datenstand bricht es ab (seit dem 12.11.2026, Audit 11.5); vorher
+    setzte es das heutige Datum ein."""
+    stand = (roh.get('osm3s', {}).get('timestamp_osm_base') or '')[:10]
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', stand):
+        raise SystemExit('%s: ohne Datenstand (Zeitstempel des Auszugs bzw. von Overpass), '
+                         'nichts geschrieben' % (land or '?'))
     gesehen, eintraege = set(), []
     for element in roh.get('elements', []):
         e = eintrag(element)
@@ -108,7 +114,6 @@ def umwandeln(roh):
             eintraege.append(e)
     eintraege.sort(key=lambda e: (e['k'], e['id']))
     eintraege, zusammengefuehrt = doppelte_zusammenfuehren(eintraege)
-    stand = (roh.get('osm3s', {}).get('timestamp_osm_base') or '')[:10] or time.strftime('%Y-%m-%d', time.gmtime())
     return {'stand': stand, 'lizenz': LIZENZ, 'eintraege': eintraege}, zusammengefuehrt
 
 
@@ -131,7 +136,7 @@ def main():
         if i and os.environ.get('ORTE_QUELLE') == 'overpass':
             time.sleep(PAUSE_LAENDER)
         anfang = time.time()
-        daten, zusammengefuehrt = umwandeln(holen(land))
+        daten, zusammengefuehrt = umwandeln(holen(land), land)
         with open(os.path.join(ziel, land + '.json'), 'w', encoding='utf-8') as f:
             json.dump(daten, f, ensure_ascii=False, separators=(',', ':'))
         print('%s: %d Einträge, Stand %s, %.0f s' % (land, len(daten['eintraege']), daten['stand'], time.time() - anfang))

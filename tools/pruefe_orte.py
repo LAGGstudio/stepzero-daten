@@ -1,6 +1,7 @@
 """Prüft ausgabe/<land>.json vor dem Veröffentlichen: Schema, Koordinaten im
-Land, Größe höchstens 8 MB und je Art die Anzahl gegen die zuletzt
-veröffentlichte Datei (fällt eine Art um mehr als 30 %, schlägt es fehl).
+Land, Größe höchstens 8 MB, Lizenz mit OpenStreetMap und der URI der ODbL,
+und die Anzahl gegen die zuletzt veröffentlichte Datei (fällt eine Art mit
+mindestens 20 Einträgen oder das ganze Land um mehr als 30 %, schlägt es fehl).
 Exit-Code 1 bei jedem Fehler; dann wird nichts veröffentlicht.
 
   python3 tools/pruefe_orte.py ausgabe [vorher]
@@ -12,10 +13,13 @@ import json, os, re, sys, urllib.error, urllib.request
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(__file__))
-from orte import ART_NAMEN, LAENDER, RAHMEN  # noqa: E402
+from orte import ART_NAMEN, LAENDER, ODBL_URI, RAHMEN  # noqa: E402
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_RUECKGANG = 0.30
+# Der Rückgang einer Art zählt erst ab so vielen Einträgen in der Vorgängerin
+# (am 12.11.2026 in AT: refill 1, repaircafe 9, verschenkbox 11, fairteiler 17).
+MIN_VORHER = 20
 # Untergrenzen, damit auch die erste Veröffentlichung nichts Leeres oder
 # Veraltetes durchlässt (am 9.11.2026 ging so eine leere DE-Datei raus):
 # je Land mindestens so viele Einträge (gemessen DE 17 006, AT 9 304,
@@ -41,6 +45,8 @@ def schema_fehler(land, daten, heute=None):
             f.append('%s: stand %s ist %d Tage alt (höchstens %d)' % (land, daten['stand'], alter, MAX_ALTER_TAGE))
     if 'OpenStreetMap' not in str(daten.get('lizenz')):
         f.append('%s: lizenz ohne OpenStreetMap' % land)
+    if ODBL_URI not in str(daten.get('lizenz')):
+        f.append('%s: lizenz ohne %s' % (land, ODBL_URI))
     eintraege = daten.get('eintraege')
     if not isinstance(eintraege, list):
         return f + ['%s: eintraege keine Liste' % land]
@@ -74,11 +80,18 @@ def anzahlen(daten):
 
 
 def rueckgang_fehler(land, neu, alt):
+    """Je Art erst ab MIN_VORHER Einträgen in der Vorgängerin (Audit 11.4:
+    in AT fiel eine einzige Refill-Station von 1 auf 0 und hätte jeden Lauf
+    gestoppt); die Summe des Lands immer."""
     f = []
     for k, vorher in alt.items():
-        if vorher and neu.get(k, 0) < vorher * (1 - MAX_RUECKGANG):
+        if vorher >= MIN_VORHER and neu.get(k, 0) < vorher * (1 - MAX_RUECKGANG):
             f.append('%s: %s fällt von %d auf %d (mehr als %d %%)'
                      % (land, k, vorher, neu.get(k, 0), MAX_RUECKGANG * 100))
+    summe_alt, summe_neu = sum(alt.values()), sum(neu.values())
+    if summe_alt and summe_neu < summe_alt * (1 - MAX_RUECKGANG):
+        f.append('%s: zusammen fällt von %d auf %d (mehr als %d %%)'
+                 % (land, summe_alt, summe_neu, MAX_RUECKGANG * 100))
     return f
 
 

@@ -19,7 +19,8 @@ selbst (<https://www.openstreetmap.org>); die nächste wöchentliche Abfrage
 
 ## Dateien
 
-Auf GitHub Pages (nicht im Repo) unter <https://laggstudio.github.io/stepzero-daten/>:
+Auf GitHub Pages (nicht im Repo; im Repo liegt nur die kleine `stand.json`
+des letzten Laufs, siehe „Wächter“) unter <https://laggstudio.github.io/stepzero-daten/>:
 [`de.json`](https://laggstudio.github.io/stepzero-daten/de.json),
 [`at.json`](https://laggstudio.github.io/stepzero-daten/at.json),
 [`ch.json`](https://laggstudio.github.io/stepzero-daten/ch.json) und eine
@@ -29,11 +30,12 @@ die frühere Adresse unter moonblazer420 gilt nicht mehr. Jede Datei ist
 kompaktes JSON:
 
 ```json
-{"stand":"2026-11-09","lizenz":"ODbL 1.0, © OpenStreetMap-Mitwirkende, https://www.openstreetmap.org/copyright",
+{"stand":"2026-11-09","lizenz":"ODbL 1.0 (https://opendatacommons.org/licenses/odbl/1-0/), © OpenStreetMap-Mitwirkende, https://www.openstreetmap.org/copyright",
  "eintraege":[{"id":"n123","k":"buecherschrank","lat":50.93759,"lon":6.96016,"name":"…","adresse":"Ring 1, 50667 Köln","oeffnung":"24/7"}]}
 ```
 
-`id`: OSM-Typ (`n`, `w`, `r`) und Nummer. `k`: Art. `lat`, `lon`: 5
+`lizenz` nennt seit dem 12.11.2026 auch die URI der ODbL 1.0 (ODbL 4.2.b
+verlangt Lizenz oder URI in der Datenbank). `id`: OSM-Typ (`n`, `w`, `r`) und Nummer. `k`: Art. `lat`, `lon`: 5
 Nachkommastellen, bei Wegen und Relationen die Mitte. `name`, `adresse`
 (Straße Nr, PLZ Ort) und `oeffnung` (`opening_hours` roh) nur, wenn vorhanden.
 
@@ -101,24 +103,76 @@ aus.
 
 ## Ablauf
 
-GitHub Actions (`.github/workflows/orte.yml`) läuft montags um 03:00 UTC und
-per Hand: Tests, je Land der tägliche Geofabrik-Auszug (`tools/hole_orte.py`
-mit `tools/geofabrik.py`, siehe unten), Zusammenführen der Doppelten, Prüfung
-gegen die veröffentlichte Fassung (`tools/pruefe_orte.py`: Schema, Koordinaten
-im Land, höchstens 8 MB, je Land mindestens 1000 Einträge, Stand höchstens 30
-Tage alt, keine Art fällt um mehr als 30 %), dann die Übersicht und die
-Veröffentlichung auf GitHub Pages. Schlägt die Prüfung fehl, bleibt die alte
-Fassung online.
+GitHub Actions (`.github/workflows/orte.yml`) läuft montags um 03:23 UTC (seit
+dem 12.11.2026 eine krumme Minute; die GitHub-Doku: „High load times include the
+start of every hour. If the load is sufficiently high enough, some queued jobs
+may be dropped.“) und per Hand: Tests, je Land der tägliche Geofabrik-Auszug
+(`tools/hole_orte.py` mit `tools/geofabrik.py`, siehe unten), Zusammenführen der
+Doppelten, Prüfung gegen die veröffentlichte Fassung (`tools/pruefe_orte.py`:
+Schema, Koordinaten im Land, höchstens 8 MB, Lizenz mit OpenStreetMap und der
+URI der ODbL, je Land mindestens 1000 Einträge, Stand höchstens 30 Tage alt;
+keine Art mit mindestens 20 Einträgen in der Vorgängerin und nicht das ganze
+Land fällt um mehr als 30 %), dann die Übersicht und die Veröffentlichung auf
+GitHub Pages. Schlägt die Prüfung fehl, bleibt die alte Fassung online.
+
+Kleine Arten (unter 20 Einträgen vorher) zählen seit dem 12.11.2026 beim
+Rückgang nicht mehr einzeln: In AT gab es online eine Refill-Station (refill 1),
+9 Repair-Cafés, 11 Verschenkboxen und 17 Fairteiler; verschwand die eine
+Refill-Station aus OSM, hätte jeder Lauf gegen dieselbe Vorgängerin
+gescheitert und DE, AT und CH eingefroren. Die Summe des Lands prüft die
+Pipeline immer.
+
+### Wächter
+
+- **Issue bei Fehlschlag:** Scheitert ein Job, legt der letzte Job `melden`
+  (nur `issues: write`) per `gh` ein Issue mit dem Label `lauf-gescheitert`
+  an; ist schon eins offen, kommt ein Kommentar mit dem Link zum Lauf dazu.
+  Wer das Repo beobachtet („Watch“), bekommt das als Benachrichtigung. Ein
+  Handstart mit `fehlerprobe` (`gh workflow run orte.yml -R
+  LAGGstudio/stepzero-daten -f fehlerprobe=true`) scheitert absichtlich vor
+  jedem Abruf und jeder Veröffentlichung und zeigt, dass das Issue entsteht.
+- **stand.json:** Jeder erfolgreiche Lauf committet nach der Veröffentlichung
+  `stand.json` auf `main` (Job `stand`, nur `contents: write`): Laufdatum,
+  Quelle, Datenstand und Zahl der Einträge je Land, Commit als
+  `github-actions[bot]`; ohne Änderung kein Commit. Vorher erzeugte ein Lauf
+  keinen Commit.
+- **60-Tage-Regel:** „In a public repository, scheduled workflows are
+  automatically disabled when no repository activity has occurred in 60 days.“
+  ([Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
+  ebenso [Disabling and enabling a workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)).
+  Was als „repository activity“ zählt und ob GitHub vorher warnt, sagt die
+  Doku nicht (12.11.2026 nachgelesen); ob der Commit von `github-actions[bot]`
+  zählt, also auch nicht. Wieder an geht es laut derselben Seite so: „if a user
+  with `write` permissions to the repository makes a commit that changes the
+  `cron` schedule on the workflow, the workflow will be reactivated“, oder über
+  „Enable workflow“ unter Actions.
+- **Wer benachrichtigt wird:** „Notifications for scheduled workflows are sent
+  to the user who last modified the cron syntax in the workflow file.“
+  (Events-Seite) bzw. „… sent to the user who initially created the
+  workflow.“ ([Notifications for workflow runs](https://docs.github.com/en/actions/concepts/workflows-and-actions/notifications-for-workflow-runs));
+  die Cron-Zeile änderte zuletzt moonblazer420 (12.11.2026).
 
 Lokal: `python3 -m unittest discover -s tests`, `python3 tools/hole_orte.py`,
-`python3 tools/pruefe_orte.py ausgabe [vorher]`, `python3 tools/seite_bauen.py`.
+`python3 tools/pruefe_orte.py ausgabe [vorher]`, `python3 tools/seite_bauen.py`,
+`python3 tools/stand.py ausgabe`.
 Bis auf pyosmium für den Auszug nur Python-Standardbibliothek.
 
 ### Hauptquelle: Geofabrik-Auszug
 
 Seit dem 10.11.2026 liest `tools/hole_orte.py` den täglichen Auszug von
 Geofabrik (`download.geofabrik.de/europe/germany`, `austria`, `switzerland`,
-`.osm.pbf`) mit pyosmium (`tools/geofabrik.py`, `pip install osmium`):
+`.osm.pbf`) mit pyosmium (`tools/geofabrik.py`; im Workflow seit dem
+12.11.2026 `osmium==4.3.*`, die Version des letzten grünen Laufs 42780352071
+war 4.3.2). Seit dem 12.11.2026 muss der Download so lang sein wie
+Content-Length und zur `.md5` passen, sonst gilt der Versuch als gescheitert;
+bis zu drei Versuche mit 120 s Pause (auch bei 503). Geofabrik leitet
+`-latest.osm.pbf` per 307 weiter, AT und CH auf die Datei mit Datum
+(`switzerland-261111.osm.pbf`), DE auf den Spiegel der GWDG; am 12.11.2026 gab
+`germany-latest.osm.pbf.md5` bei Geofabrik 404, die Spiegel und die Dateien mit
+Datum haben eine `.md5`. Darum gilt zuerst die `.md5` neben der Datei, die
+wirklich kam, sonst die neben der `-latest`-Adresse. Fehlt der Zeitstempel im
+Auszug, bricht der Lauf ab (bis zum 12.11.2026 setzte er das heutige Datum ein).
+Weiter wie bisher:
 dieselben Etiketten und Ausschlüsse, bei Wegen und Relationen die Mitte des
 umschließenden Rechtecks wie bei Overpass `center`, `stand` aus dem
 Zeitstempel des Auszugs. Das OSM-Wiki empfiehlt Auszüge plus osmium

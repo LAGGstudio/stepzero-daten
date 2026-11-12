@@ -1,5 +1,5 @@
 """Tests für Umwandlung und Prüfung (ohne Netz): python3 -m unittest discover -s tests"""
-import datetime, io, json, os, sys, tempfile, unittest
+import datetime, hashlib, http.server, io, json, os, sys, tempfile, threading, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 import hole_orte  # noqa: E402
@@ -51,6 +51,22 @@ class Umwandlung(unittest.TestCase):
         self.assertEqual(adresse({'addr:street': 'Ring', 'addr:housenumber': '1'}), 'Ring 1')
         self.assertEqual(adresse({'addr:postcode': '1010', 'addr:city': 'Wien'}), '1010 Wien')
         self.assertIsNone(adresse({'addr:housenumber': '1'}))
+
+    def test_ohne_datenstand_abbrechen_statt_heute(self):
+        # Bis zum 12.11.2026 setzte umwandeln dann das heutige Datum ein (Audit 11.5).
+        for roh in ({'elements': [knoten(1, {'amenity': 'give_box'})]},
+                    {'osm3s': {'timestamp_osm_base': ''}, 'elements': [knoten(1, {'amenity': 'give_box'})]},
+                    {'osm3s': {'timestamp_osm_base': 'gestern'}, 'elements': []}):
+            with self.assertRaises(SystemExit) as ctx:
+                hole_orte.umwandeln(roh, 'at')
+            self.assertIn('at: ohne Datenstand', str(ctx.exception))
+
+    def test_lizenz_mit_uri_der_odbl(self):
+        # ODbL 4.2.b: Lizenz oder URI in der Datenbank (Audit 11.10).
+        self.assertIn('https://opendatacommons.org/licenses/odbl/1-0/', orte.LIZENZ)
+        self.assertIn('OpenStreetMap', orte.LIZENZ)
+        d, _ = hole_orte.umwandeln({'osm3s': {'timestamp_osm_base': '2026-11-09T18:00:00Z'}, 'elements': []})
+        self.assertEqual(d['lizenz'], orte.LIZENZ)
 
     def test_umwandeln_kompakt_sortiert_ohne_doppel(self):
         roh = {'osm3s': {'timestamp_osm_base': '2026-11-09T18:00:00Z'}, 'elements': [
@@ -317,7 +333,7 @@ HEUTE = datetime.date(2026, 11, 9)
 
 
 def datei(eintraege, stand='2026-11-09'):
-    return {'stand': stand, 'lizenz': 'ODbL 1.0, © OpenStreetMap-Mitwirkende', 'eintraege': eintraege}
+    return {'stand': stand, 'lizenz': orte.LIZENZ, 'eintraege': eintraege}
 
 
 def gueltig(land='de', n=10, k='trinkbrunnen'):
@@ -409,6 +425,249 @@ class Pruefung(unittest.TestCase):
             f.write(' ' * (8 * 1024 * 1024))
         f = self.pruefen(d)
         self.assertTrue(any('mehr als 8 MB' in x for x in f), f)
+
+
+    def test_lizenz_ohne_uri(self):
+        d = datei(gueltig())
+        d['lizenz'] = 'ODbL 1.0, © OpenStreetMap-Mitwirkende'
+        f = self.pruefen(self.ordner({'de': d}))
+        self.assertEqual(f, ['de: lizenz ohne https://opendatacommons.org/licenses/odbl/1-0/'])
+
+
+class Rueckgang(unittest.TestCase):
+    """Audit 11.4: Der Rückgang einer Art zählt erst ab 20 Einträgen vorher,
+    die Summe des Lands immer."""
+
+    # So stand AT am 12.11.2026 online (gemessen).
+    AT = {'buecherschrank': 567, 'fairteiler': 17, 'garten': 196, 'refill': 1,
+          'repaircafe': 9, 'trinkbrunnen': 8489, 'verschenkbox': 11}
+
+    def test_faelle_aus_dem_audit_laufen_durch(self):
+        neu = dict(self.AT, refill=0, repaircafe=6)
+        self.assertEqual(pruefe_orte.rueckgang_fehler('at', neu, self.AT), [])
+        # Auch kleine Arten ganz weg (verschenkbox 11 → 0, fairteiler 17 → 0).
+        neu = dict(self.AT, refill=0, verschenkbox=0, fairteiler=0)
+        self.assertEqual(pruefe_orte.rueckgang_fehler('at', neu, self.AT), [])
+
+    def test_echter_einbruch_scheitert(self):
+        f = pruefe_orte.rueckgang_fehler('at', dict(self.AT, trinkbrunnen=5000), self.AT)
+        self.assertEqual(f, ['at: trinkbrunnen fällt von 8489 auf 5000 (mehr als 30 %)',
+                             'at: zusammen fällt von 9290 auf 5801 (mehr als 30 %)'])
+        f = pruefe_orte.rueckgang_fehler('at', dict(self.AT, buecherschrank=300), self.AT)
+        self.assertEqual(f, ['at: buecherschrank fällt von 567 auf 300 (mehr als 30 %)'])
+
+    def test_grenze_bei_20(self):
+        self.assertEqual(pruefe_orte.MIN_VORHER, 20)
+        alt = {'refill': 20, 'trinkbrunnen': 5000}
+        self.assertEqual(pruefe_orte.rueckgang_fehler('de', {'refill': 14, 'trinkbrunnen': 5000}, alt), [])
+        self.assertEqual(pruefe_orte.rueckgang_fehler('de', {'refill': 13, 'trinkbrunnen': 5000}, alt),
+                         ['de: refill fällt von 20 auf 13 (mehr als 30 %)'])
+        alt = {'refill': 19, 'trinkbrunnen': 5000}
+        self.assertEqual(pruefe_orte.rueckgang_fehler('de', {'trinkbrunnen': 5000}, alt), [])
+
+    def test_summe_immer(self):
+        # Lauter kleine Arten, jede unter 20: die Summe fällt trotzdem auf.
+        alt = {k: 19 for k in orte.ART_NAMEN}
+        f = pruefe_orte.rueckgang_fehler('ch', {k: 9 for k in orte.ART_NAMEN}, alt)
+        self.assertEqual(f, ['ch: zusammen fällt von 133 auf 63 (mehr als 30 %)'])
+
+    def test_ueber_pruefen_mit_vorheriger_datei(self):
+        alt_min = pruefe_orte.MIN_EINTRAEGE
+        pruefe_orte.MIN_EINTRAEGE = 1
+        try:
+            vorher = tempfile.mkdtemp()
+            neu = tempfile.mkdtemp()
+            for ordner, refill in ((vorher, 1), (neu, 0)):
+                for land in ('de', 'at', 'ch'):
+                    e = gueltig(land, n=100) + [dict(gueltig(land, n=1, k='refill')[0], id='n9%d' % i)
+                                                 for i in range(refill)]
+                    with open(os.path.join(ordner, land + '.json'), 'w', encoding='utf-8') as d:
+                        json.dump(datei(e), d)
+            self.assertEqual(pruefe_orte.pruefen(neu, vorher, heute=HEUTE), [])
+        finally:
+            pruefe_orte.MIN_EINTRAEGE = alt_min
+
+
+class _Geofabrik(http.server.BaseHTTPRequestHandler):
+    """Lokaler Ersatz für download.geofabrik.de: `antworten` je Pfad eine
+    Liste von (Status, Kopfzeilen, Körper); die letzte gilt weiter."""
+    antworten = {}
+    anfragen = []
+
+    def do_GET(self):
+        type(self).anfragen.append(self.path)
+        liste = type(self).antworten.get(self.path) or [(404, {}, b'')]
+        status, kopf, koerper = liste.pop(0) if len(liste) > 1 else liste[0]
+        self.send_response(status)
+        for k, v in kopf.items():
+            self.send_header(k, v)
+        if 'Content-Length' not in kopf and status != 307:
+            self.send_header('Content-Length', str(len(koerper)))
+        self.end_headers()
+        self.wfile.write(koerper)
+        self.close_connection = True
+
+    def log_message(self, *a):
+        pass
+
+
+class Download(unittest.TestCase):
+    """Audit 11.5: Länge und .md5 prüfen, bis zu drei Versuche."""
+    INHALT = b'PBF' * 400  # 1200 Byte
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = http.server.HTTPServer(('127.0.0.1', 0), _Geofabrik)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.basis = 'http://127.0.0.1:%d/' % cls.server.server_port
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        import geofabrik
+        self.geofabrik = geofabrik
+        _Geofabrik.anfragen = []
+        md5 = hashlib.md5(self.INHALT).hexdigest()
+        # Wie Geofabrik: -latest leitet auf die Datei mit Datum weiter.
+        _Geofabrik.antworten = {
+            '/europe/switzerland-latest.osm.pbf': [(307, {'Location': '/europe/switzerland-261111.osm.pbf'}, b'')],
+            '/europe/switzerland-261111.osm.pbf': [(200, {}, self.INHALT)],
+            '/europe/switzerland-261111.osm.pbf.md5': [(200, {}, ('%s  switzerland-261111.osm.pbf\n' % md5).encode())],
+        }
+        self.ziel = os.path.join(tempfile.mkdtemp(), 'ch.osm.pbf')
+        self.stderr = sys.stderr
+        sys.stderr = io.StringIO()
+
+    def tearDown(self):
+        sys.stderr = self.stderr
+
+    def laden(self):
+        return self.geofabrik.laden('ch', self.ziel, quelle=self.basis + '%s-latest.osm.pbf', pause=0)
+
+    def pbf_abrufe(self):
+        return [p for p in _Geofabrik.anfragen if p.endswith('261111.osm.pbf')]
+
+    def test_vollstaendig_und_md5_neben_der_datei(self):
+        ende = self.laden()
+        self.assertTrue(ende.endswith('/europe/switzerland-261111.osm.pbf'), ende)
+        with open(self.ziel, 'rb') as d:
+            self.assertEqual(d.read(), self.INHALT)
+        self.assertEqual(len(self.pbf_abrufe()), 1)
+
+    def test_md5_der_latest_adresse_als_rueckfall(self):
+        a = _Geofabrik.antworten
+        a['/europe/switzerland-latest.osm.pbf.md5'] = a.pop('/europe/switzerland-261111.osm.pbf.md5')
+        self.laden()
+        self.assertIn('/europe/switzerland-latest.osm.pbf.md5', _Geofabrik.anfragen)
+
+    def test_halber_download_dreimal_dann_abbruch(self):
+        # Content-Length 1200, nach 600 Byte zu: Pythons read(amt) meldet das nicht selbst.
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [
+            (200, {'Content-Length': str(len(self.INHALT))}, self.INHALT[:600])]
+        with self.assertRaises(SystemExit) as ctx:
+            self.laden()
+        self.assertIn('nach 3 Versuchen', str(ctx.exception))
+        self.assertEqual(len(self.pbf_abrufe()), 3)
+        self.assertIn('600 von 1200 Byte', sys.stderr.getvalue())
+
+    def test_falsche_pruefsumme_dreimal_dann_abbruch(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf.md5'] = [
+            (200, {}, b'0123456789abcdef0123456789abcdef  switzerland-261111.osm.pbf\n')]
+        with self.assertRaises(SystemExit):
+            self.laden()
+        self.assertEqual(len(self.pbf_abrufe()), 3)
+        self.assertIn('Prüfsumme', sys.stderr.getvalue())
+
+    def test_ohne_md5_abbruch(self):
+        del _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf.md5']
+        with self.assertRaises(SystemExit):
+            self.laden()
+        self.assertIn('keine .md5', sys.stderr.getvalue())
+
+    def test_erst_503_dann_200(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [
+            (503, {}, b'busy'), (200, {}, self.INHALT)]
+        self.laden()
+        self.assertEqual(len(self.pbf_abrufe()), 2)
+        self.assertIn('Versuch 1 von 3 gescheitert', sys.stderr.getvalue())
+        with open(self.ziel, 'rb') as d:
+            self.assertEqual(d.read(), self.INHALT)
+
+    def test_ohne_content_length(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [
+            (200, {'Content-Length': 'x'}, self.INHALT)]
+        with self.assertRaises(SystemExit):
+            self.laden()
+        self.assertIn('ohne Content-Length', sys.stderr.getvalue())
+
+
+class Stand(unittest.TestCase):
+    """stand.json auf main (Audit 11.6)."""
+
+    def test_berechnen_schreiben_kurz(self):
+        import stand
+        ordner = tempfile.mkdtemp()
+        for land, n in (('de', 3), ('at', 2), ('ch', 1)):
+            with open(os.path.join(ordner, land + '.json'), 'w', encoding='utf-8') as d:
+                json.dump(datei(gueltig(land, n=n), stand='2026-11-1%d' % n), d)
+        daten = stand.berechnen(ordner, heute=datetime.date(2026, 11, 16), quelle='geofabrik')
+        self.assertEqual(daten, {'lauf': '2026-11-16', 'quelle': 'geofabrik',
+                                 'stand': {'de': '2026-11-13', 'at': '2026-11-12', 'ch': '2026-11-11'},
+                                 'eintraege': {'de': 3, 'at': 2, 'ch': 1}})
+        pfad = os.path.join(ordner, 'stand.json')
+        stand.schreiben(daten, pfad)
+        with open(pfad, encoding='utf-8') as d:
+            self.assertEqual(json.load(d), daten)
+        self.assertEqual(stand.kurz(daten), 'DE 2026-11-13 (3), AT 2026-11-12 (2), CH 2026-11-11 (1)')
+
+
+class Workflow(unittest.TestCase):
+    """Eckpunkte von .github/workflows/orte.yml (ohne YAML-Leser, als Text)."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(os.path.dirname(__file__), '..', '.github', 'workflows', 'orte.yml'),
+                  encoding='utf-8') as d:
+            cls.text = d.read()
+
+    def job(self, name):
+        """Der Job bis zum nächsten Job (zwei Leerzeichen eingerückt) oder zum Ende."""
+        import re
+        teile = self.text.split('\n  %s:\n' % name, 1)
+        self.assertEqual(len(teile), 2, name)
+        return re.split(r'\n  [a-z_]+:\n', teile[1], maxsplit=1)[0]
+
+    def test_krumme_minute_und_osmium_gepinnt(self):
+        self.assertIn("- cron: '23 3 * * 1'", self.text)
+        self.assertIn("pip install 'osmium==4.3.*'", self.text)
+        self.assertNotIn('pip install osmium\n', self.text)
+
+    def test_fehlerprobe_vor_jedem_abruf(self):
+        bauen = self.job('bauen')
+        self.assertIn('fehlerprobe:', self.text)
+        probe = bauen.index('if: ${{ inputs.fehlerprobe }}')
+        self.assertLess(probe, bauen.index('actions/checkout'))
+        self.assertLess(probe, bauen.index('hole_orte.py'))
+        self.assertIn('exit 1', bauen[probe:bauen.index('actions/checkout')])
+
+    def test_melden_bei_fehler_nur_mit_issues_write(self):
+        melden = self.job('melden')
+        self.assertIn('needs: [bauen, veroeffentlichen, stand]', melden)
+        self.assertIn('if: ${{ failure() }}', melden)
+        rechte = melden.split('permissions:\n', 1)[1].split('\n    env:', 1)[0]
+        self.assertEqual(rechte.split(), ['issues:', 'write'])
+        self.assertIn('--label lauf-gescheitert', melden)
+        self.assertIn('gh issue comment', melden)
+
+    def test_stand_nach_der_veroeffentlichung_nur_mit_contents_write(self):
+        stand = self.job('stand')
+        self.assertIn('needs: [bauen, veroeffentlichen]', stand)
+        rechte = stand.split('permissions:\n', 1)[1].split('\n    steps:', 1)[0]
+        self.assertEqual(rechte.split(), ['contents:', 'write'])
+        self.assertIn('git push origin HEAD:main', stand)
 
 
 if __name__ == '__main__':

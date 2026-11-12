@@ -7,8 +7,16 @@ die öffentlichen Overpass-Server überlastet sind (am 9.11.2026 alle drei).
 Liefert dasselbe Format wie Overpass (`elements` mit `tags`, bei Wegen und
 Relationen `center` als Mitte des umschließenden Rechtecks), damit dieselbe
 Umwandlung (`hole_orte.umwandeln`) und dieselbe Prüfung greifen.
+
+Der Download (seit dem 12.11.2026, Audit 11.5) muss so lang sein wie
+Content-Length und zur .md5 passen, sonst gilt er als gescheitert; bis zu
+VERSUCHE Versuche mit PAUSE dazwischen. Geofabrik leitet `-latest.osm.pbf`
+per 307 weiter (AT, CH auf die Datei mit Datum, DE auf den Spiegel der GWDG;
+am 12.11.2026 gab `germany-latest.osm.pbf.md5` bei Geofabrik 404), darum gilt
+zuerst die .md5 neben der Datei, die wirklich kam, sonst die neben der
+`-latest`-Adresse.
 """
-import os, sys, tempfile, time, urllib.request
+import hashlib, http.client, os, re, sys, tempfile, time, urllib.error, urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from orte import ARTEN, art, ausgeschlossen  # noqa: E402
@@ -22,15 +30,75 @@ USER_AGENT = 'StepZero-Daten/1.0 (info.laggstudio@gmail.com)'
 ETIKETTEN = sorted({kv for _, varianten in ARTEN for etiketten in varianten for kv in etiketten.items()})
 
 
-def laden(land, ziel):
-    """Lädt den Auszug nach `ziel` (Datei), in Stücken."""
-    anfrage = urllib.request.Request(QUELLE % REGION[land], headers={'User-Agent': USER_AGENT})
+VERSUCHE = 3
+PAUSE = 120  # Sekunden zwischen zwei Versuchen
+
+
+class Unvollstaendig(Exception):
+    """Ein Versuch lieferte nicht die ganze Datei (Länge, Prüfsumme)."""
+
+
+def _md5_lesen(url):
+    anfrage = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+    with urllib.request.urlopen(anfrage, timeout=60) as a:
+        text = a.read(4096).decode('ascii', 'replace')
+    treffer = re.match(r'\s*([0-9a-f]{32})\b', text)
+    if not treffer:
+        raise Unvollstaendig('%s: keine Prüfsumme' % url)
+    return treffer.group(1)
+
+
+def _pruefsumme(ende, url):
+    """Die .md5 neben der Datei, die wirklich kam, sonst die neben `url`."""
+    for kandidat in dict.fromkeys((ende + '.md5', url + '.md5')):
+        try:
+            return _md5_lesen(kandidat)
+        except urllib.error.HTTPError as fehler:
+            if fehler.code != 404:
+                raise
+    raise Unvollstaendig('keine .md5 zu %s' % ende)
+
+
+def _einmal_laden(url, ziel):
+    """Lädt `url` nach `ziel` und gibt (Adresse nach Weiterleitungen, md5)
+    zurück; zu kurz oder ohne Content-Length: Unvollstaendig. Pythons
+    `read(amt)` meldet einen abgebrochenen Download nicht selbst."""
+    anfrage = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+    summe, n = hashlib.md5(), 0
     with urllib.request.urlopen(anfrage, timeout=120) as a, open(ziel, 'wb') as d:
+        laenge = a.headers.get('Content-Length')
+        if laenge is None or not laenge.strip().isdigit():
+            raise Unvollstaendig('ohne Content-Length')
         while True:
             stueck = a.read(1 << 20)
             if not stueck:
                 break
             d.write(stueck)
+            summe.update(stueck)
+            n += len(stueck)
+        ende = a.geturl()
+    if n != int(laenge):
+        raise Unvollstaendig('%d von %s Byte' % (n, laenge.strip()))
+    return ende, summe.hexdigest()
+
+
+def laden(land, ziel, quelle=QUELLE, versuche=VERSUCHE, pause=PAUSE):
+    """Lädt den Auszug nach `ziel` (Datei), in Stücken, geprüft gegen
+    Content-Length und .md5; bis zu `versuche` Versuche. Gibt die Adresse
+    zurück, von der er kam."""
+    url = quelle % REGION[land]
+    for versuch in range(1, versuche + 1):
+        try:
+            ende, summe = _einmal_laden(url, ziel)
+            erwartet = _pruefsumme(ende, url)
+            if summe != erwartet:
+                raise Unvollstaendig('Prüfsumme %s, erwartet %s' % (summe, erwartet))
+            return ende
+        except (Unvollstaendig, OSError, http.client.HTTPException) as fehler:
+            print('%s: Versuch %d von %d gescheitert: %s' % (land, versuch, versuche, fehler), file=sys.stderr)
+            if versuch < versuche:
+                time.sleep(pause)
+    raise SystemExit('%s: Geofabrik-Auszug nach %d Versuchen nicht vollständig' % (land, versuche))
 
 
 def _mitte(punkte):
@@ -103,8 +171,9 @@ def holen(land):
     with tempfile.TemporaryDirectory() as tmp:
         pfad = os.path.join(tmp, land + '.osm.pbf')
         anfang = time.time()
-        laden(land, pfad)
-        print('%s: Geofabrik-Auszug %d Byte in %.0f s' % (land, os.path.getsize(pfad), time.time() - anfang))
+        ende = laden(land, pfad)
+        print('%s: Geofabrik-Auszug %d Byte in %.0f s, Länge und md5 geprüft (%s)'
+              % (land, os.path.getsize(pfad), time.time() - anfang, ende))
         anfang = time.time()
         roh = elemente(pfad)
         print('%s: %d Elemente gelesen in %.0f s' % (land, len(roh['elements']), time.time() - anfang))

@@ -15,7 +15,12 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
 - Keine Daten im Repo (`ausgabe/` steht in `.gitignore`); veröffentlicht wird
   nur über GitHub Actions (`.github/workflows/orte.yml`, Pages-Quelle „GitHub
   Actions“). Handstart: `gh workflow run orte.yml -R LAGGstudio/stepzero-daten
-  -f quelle=geofabrik`.
+  -f quelle=geofabrik`; ein Handstart veröffentlicht für echte Nutzer, also
+  erst nach grünen Tests. Einzige Ausnahme im Repo: `stand.json`, die jeder
+  erfolgreiche Lauf als `github-actions[bot]` auf `main` committet (vor eigenem
+  Push `git pull`). Rote Probe des Wächters: `-f fehlerprobe=true`, dann das
+  Issue mit dem Label `lauf-gescheitert` prüfen und schließen (README,
+  „Wächter“).
 - Hauptquelle ist der Geofabrik-Auszug; Overpass nur von Hand
   (`ORTE_QUELLE=overpass`), ohne Rückfall.
 - Ändert sich das Format der Dateien (Felder, Arten `k`), muss die App es
