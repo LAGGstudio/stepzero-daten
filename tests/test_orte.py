@@ -188,16 +188,22 @@ def ort(i, name=None, lat=50.9, lon=6.9, k='garten', **mehr):
 
 class Doppelte(unittest.TestCase):
     # 0,00179° Breite sind etwa 199 m, 0,00181° etwa 201 m (seit dem
-    # 12.11.2026 liegt die Grenze bei 200 m, vorher bei 100 m).
+    # 12.11.2026 liegt die Grenze für eigene Namen bei 200 m, vorher bei
+    # 100 m); 0,00026° etwa 28,9 m, 0,00028° etwa 31,1 m (seit dem
+    # 13.11.2026 die Grenze für allgemeine Namen, vorher nie).
     NAH, WEIT = 50.9 + 0.00179, 50.9 + 0.00181
+    NAH_ALLGEMEIN, WEIT_ALLGEMEIN = 50.9 + 0.00026, 50.9 + 0.00028
 
     def ids(self, eintraege):
         return [e['id'] for e in doppelte_zusammenfuehren(eintraege)[0]]
 
     def test_abstaende_der_testpunkte(self):
         self.assertEqual(orte.DOPPEL_ABSTAND_M, 200)
+        self.assertEqual(orte.DOPPEL_ABSTAND_ALLGEMEIN_M, 30)
         self.assertLess(abstand_m(ort('n1'), ort('n2', lat=self.NAH)), 200)
         self.assertGreater(abstand_m(ort('n1'), ort('n2', lat=self.WEIT)), 200)
+        self.assertLess(abstand_m(ort('n1'), ort('n2', lat=self.NAH_ALLGEMEIN)), 30)
+        self.assertGreater(abstand_m(ort('n1'), ort('n2', lat=self.WEIT_ALLGEMEIN)), 30)
         # Gleiche Rechnung wie die App: 1° Breite = 111,195 km.
         self.assertAlmostEqual(abstand_m(ort('n1', lat=50), ort('n2', lat=51)), 111195.08, places=1)
 
@@ -224,12 +230,15 @@ class Doppelte(unittest.TestCase):
             'wasserstelle', 'buecherschrank', 'offenerbuecherschrank', 'buecherbox',
             'buecherzelle', 'givebox', 'verschenkbox', 'verschenkregal', 'fairteiler',
             'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill',
-            'wasserhahn', 'fontana', 'fontaine', 'fontaene', 'laufbrunnen', 'zierbrunnen']))
+            'wasserhahn', 'fontana', 'fontaine', 'fontaene', 'laufbrunnen', 'zierbrunnen',
+            'trinkwasserspender', 'thermalwassertrinkbrunnen', 'eurotrinkbrunnen', 'kastenbrunnen']))
         for n in orte.ALLERWELTSNAMEN:
             self.assertEqual(name_schluessel(n), n, 'normalisiert wie beim Vergleich')
         self.assertEqual(set(orte.STANDARDNAMEN), set(orte.ART_NAMEN), 'jede Art')
 
-    def test_allerweltsnamen_nie_zusammenfuehren(self):
+    def test_allgemeine_namen_nur_unter_30_m(self):
+        # Seit dem 13.11.2026: unter 30 m derselbe Ort, darüber zwei (bis
+        # dahin wurden allgemeine Namen nie zusammengeführt).
         for k, name in (('trinkbrunnen', 'Brunnen'), ('trinkbrunnen', 'Gießwasser'),
                         ('trinkbrunnen', 'Wasch'), ('trinkbrunnen', 'Wasser-Stelle'),
                         ('buecherschrank', 'Offener Bücherschrank'), ('buecherschrank', 'Bücher-Box'),
@@ -238,46 +247,107 @@ class Doppelte(unittest.TestCase):
                         ('repaircafe', 'Repair Café'), ('refill', 'REFILL'),
                         ('trinkbrunnen', 'Wasserhahn'), ('trinkbrunnen', 'Fontana'),
                         ('trinkbrunnen', 'Fontaine'), ('trinkbrunnen', 'Fontäne'),
-                        ('trinkbrunnen', 'Lauf-Brunnen'), ('trinkbrunnen', 'Zierbrunnen')):
+                        ('trinkbrunnen', 'Lauf-Brunnen'), ('trinkbrunnen', 'Zierbrunnen'),
+                        ('trinkbrunnen', 'Trinkwasserspender'),
+                        ('trinkbrunnen', 'Thermalwasser-Trinkbrunnen'),
+                        ('trinkbrunnen', 'Euro-Trinkbrunnen'), ('trinkbrunnen', 'Kastenbrunnen')):
             self.assertTrue(allerweltsname(name), name)
-            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
-            self.assertEqual(self.ids(e), ['n1', 'n2'], name)
-        # Gegenprobe: ein Name, der nur ein Allerweltswort enthält, ist eigen.
+            nah = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.NAH_ALLGEMEIN)]
+            self.assertEqual(self.ids(nah), ['n1'], name)
+            weit = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.WEIT_ALLGEMEIN)]
+            self.assertEqual(self.ids(weit), ['n1', 'n2'], name)
+        # Gegenprobe: ein Name, der ein Allerweltswort nur enthält, ist eigen
+        # und gilt bis 200 m.
         for k, name in (('trinkbrunnen', 'Brunnen am Markt'), ('buecherschrank', 'Bücherschrank am Ring'),
                         ('garten', 'Garten am Mer'), ('trinkbrunnen', 'Fontana di Piazza'),
                         ('trinkbrunnen', 'Wasserhahn Friedhof Süd')):
             self.assertFalse(allerweltsname(name), name)
-            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
+            e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.NAH)]
             self.assertEqual(self.ids(e), ['n1'], name)
+
+    def test_trinkwasserspender_150_m_bleiben_zwei(self):
+        e = [ort('n1', 'Trinkwasserspender', k='trinkbrunnen'),
+             ort('n2', 'Trinkwasserspender', k='trinkbrunnen', lat=50.9 + 0.001349)]
+        self.assertAlmostEqual(abstand_m(e[0], e[1]), 150.0, delta=0.5)
+        behalten, zusammen = doppelte_zusammenfuehren(e)
+        self.assertEqual([x['id'] for x in behalten], ['n1', 'n2'])
+        self.assertEqual(zusammen, {})
+
+    def test_trinkwasserspender_10_m_werden_einer(self):
+        e = [ort('n1', 'Trinkwasserspender', k='trinkbrunnen'),
+             ort('n2', 'Trinkwasserspender', k='trinkbrunnen', lat=50.9 + 0.00009)]
+        self.assertAlmostEqual(abstand_m(e[0], e[1]), 10.0, delta=0.5)
+        behalten, zusammen = doppelte_zusammenfuehren(e)
+        self.assertEqual([x['id'] for x in behalten], ['n1'])
+        self.assertEqual(zusammen, {'trinkbrunnen': 1})
 
     def test_standardnamen_gelten_fuer_jede_art(self):
         # Die Standardnamen der App, deutsch und englisch, seit Runde 39 für
-        # jede Art: auch zwei Trinkbrunnen namens „Refill-Station“ bleiben zwei
-        # (so am 10.11.2026 in DE) und ein Garten namens „Drinking fountain“.
+        # jede Art: auch zwei Trinkbrunnen namens „Refill-Station“ 31 m
+        # auseinander bleiben zwei und ein Garten namens „Drinking fountain“.
         alle = [(k, n) for k, namen in orte.STANDARDNAMEN.items() for n in namen]
         self.assertEqual(len(alle), 14)
         for k_name, name in alle:
             for k in orte.ART_NAMEN:
                 self.assertTrue(allerweltsname(name), name)
-                e = [ort('n1', name, k=k), ort('n2', name, k=k, lat=50.9 + 0.0001)]
-                self.assertEqual(self.ids(e), ['n1', 'n2'], (k, name))
+                weit = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.WEIT_ALLGEMEIN)]
+                self.assertEqual(self.ids(weit), ['n1', 'n2'], (k, name))
+                nah = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.NAH_ALLGEMEIN)]
+                self.assertEqual(self.ids(nah), ['n1'], (k, name))
         # Gegenprobe: ein Name, der einen Standardnamen nur enthält, ist eigen.
         for name in ('Refill-Station am Markt', 'Trinkbrunnen Domplatte', 'Community garden Ehrenfeld'):
             self.assertFalse(allerweltsname(name), name)
-            e = [ort('n1', name, k='trinkbrunnen'), ort('n2', name, k='trinkbrunnen', lat=50.9 + 0.0001)]
+            e = [ort('n1', name, k='trinkbrunnen'), ort('n2', name, k='trinkbrunnen', lat=self.NAH)]
             self.assertEqual(self.ids(e), ['n1'], name)
 
+    def test_strassennamen_ohne_zusatz_sind_allgemein(self):
+        for name in ('Dorfstrasse', 'Dorfstraße', 'Karl-Marx-Straße', 'Hauptstr.', 'Lindenweg',
+                     'Brunngasse', 'Mittelgässli', 'Marktplatz', 'Lange Gasse', 'Kölner Straße',
+                     'Am Markt', 'An der Allee', 'Rue du Marché', 'Via Cantonale', 'Place de la Gare'):
+            self.assertTrue(orte.strassenname(name), name)
+            self.assertTrue(allerweltsname(name), name)
+        # Gegenprobe: mit Hausnummer, mit Zusatz oder ohne Straßenwort eigen.
+        for name in ('Dorfstrasse 5', 'Brunnen Dorfstrasse', 'Brunnen am Markt', 'Brunnen Marktplatz',
+                     'Gemeinschaftsgarten Lindenweg', 'Fontaine de la Place', 'Der Läufer', 'Querbeet',
+                     'Rue', 'Am Brunnen', 'Die Lesebank'):
+            self.assertFalse(orte.strassenname(name), name)
+            self.assertFalse(allerweltsname(name), name)
+
+    def test_dorfstrasse_zwei_brunnen(self):
+        # Zwei Trinkbrunnen „Dorfstrasse“ in CH (Auszug vom 11.11.2026) 193 m
+        # auseinander: Mit 200 m für alle Namen fiel n1094418955 weg (Pages-Stand
+        # vom 12.11.2026); als Straßenname gelten 30 m, beide bleiben.
+        e = [ort('n1094418955', 'Dorfstrasse', k='trinkbrunnen', lat=47.53396, lon=8.25474),
+             ort('n791450067', 'Dorfstrasse', k='trinkbrunnen', lat=47.53267, lon=8.25646)]
+        self.assertAlmostEqual(abstand_m(e[0], e[1]), 193.0, places=0)
+        self.assertEqual(self.ids(e), ['n1094418955', 'n791450067'])
+
+    def test_allgemein_gilt_fuer_die_ganze_gruppe(self):
+        # „Dorf Strasse“ allein wäre eigen (kein Adjektiv vor „Strasse“), hat
+        # aber denselben Schlüssel wie der Straßenname „Dorfstrasse“: Die Gruppe
+        # gilt als allgemein, 100 m auseinander bleiben beide.
+        self.assertFalse(allerweltsname('Dorf Strasse'))
+        e = [ort('n1', 'Dorf Strasse', k='trinkbrunnen'),
+             ort('n2', 'Dorfstrasse', k='trinkbrunnen', lat=50.9 + 0.0009)]
+        self.assertEqual(self.ids(e), ['n1', 'n2'])
+        self.assertEqual(self.ids(list(reversed(e))), ['n2', 'n1'])
+
     def test_querbeet_koeln_eine_einrichtung(self):
-        # Die beiden Knoten, die am 12.11.2026 noch doppelt in der App
-        # standen (Pages-Stand 2026-11-11): gleiche Art, gleicher Name,
-        # 113 m auseinander, beide ohne Adresse und Öffnungszeiten; es bleibt
-        # die kleinere ID.
+        # Die drei Knoten des Gartens „Querbeet“ in Köln (Auszug vom
+        # 11.11.2026, Betreiber Querbeet e.V.): 113 m, 128 m und 17 m
+        # auseinander, alle ohne Adresse und Öffnungszeiten. Ein eigener Name,
+        # also 200 m: Es bleibt einer, der mit der kleinsten ID. Bis zum
+        # 12.11.2026 (100 m) blieben zwei.
         e = [ort('n11199147603', 'Querbeet', lat=50.9384, lon=6.93289),
-             ort('n11199147604', 'Querbeet', lat=50.93846, lon=6.9345)]
+             ort('n11199147604', 'Querbeet', lat=50.93846, lon=6.9345),
+             ort('n11199147605', 'Querbeet', lat=50.93854, lon=6.9347)]
         self.assertAlmostEqual(abstand_m(e[0], e[1]), 113.0, places=0)
+        self.assertAlmostEqual(abstand_m(e[0], e[2]), 127.8, places=1)
+        self.assertAlmostEqual(abstand_m(e[1], e[2]), 16.6, places=1)
+        self.assertFalse(allerweltsname('Querbeet'))
         behalten, zusammen = doppelte_zusammenfuehren(e)
         self.assertEqual([x['id'] for x in behalten], ['n11199147603'])
-        self.assertEqual(zusammen, {'garten': 1})
+        self.assertEqual(zusammen, {'garten': 2})
 
     def test_gleiche_art_gleicher_name_unter_200_m(self):
         e = [ort('n1', 'Querbeet'), ort('n2', 'querbeet', lat=self.NAH)]

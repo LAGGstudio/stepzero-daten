@@ -29,7 +29,9 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
   als 100 Einträgen.
 - **`STANDARDNAMEN` in `tools/orte.py` und `ortGarten` … `ortRefill` in
   `lib/l10n/app_de.arb` und `app_en.arb` der App gehören zusammen** (die
-  Namen, die die App für Orte ohne Namen zeigt; Einträge mit diesen Namen
-  werden nie zusammengeführt): Wer das eine ändert, ändert das andere.
+  Namen, die die App für Orte ohne Namen zeigt; sie gelten wie die
+  Gattungswörter und Straßennamen als allgemein, Einträge mit ihnen werden
+  nur unter 30 m zusammengeführt, eigene Namen unter 200 m; README,
+  „Doppelte“): Wer das eine ändert, ändert das andere.
   Kommt eine Art dazu, braucht sie hier einen Eintrag und in der App einen
   Standardnamen.

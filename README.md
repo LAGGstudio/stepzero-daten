@@ -77,27 +77,38 @@ Köln 17 m auseinander). Die Pipeline führt sie zusammen
 - gleich sind Einträge derselben Art mit demselben Namen, verglichen klein,
   mit umschriebenen Umlauten (ä→ae, ö→oe, ü→ue, ß→ss), ohne andere Akzente
   und ohne Leer- und Satzzeichen („Quer-Beet“ = „querbeet“, „Gießwasser“ =
-  „giesswasser“), unter 200 m (Haversine, Erdradius 6371,0088 km wie in der
-  App; bis zum 12.11.2026 unter 100 m, dann blieb der Garten „Querbeet“ in
-  Köln mit zwei Knoten 113 m auseinander doppelt);
-- behalten wird der Eintrag mit den meisten Angaben (Adresse, Öffnungszeiten),
-  bei Gleichstand der mit der kleineren ID (erst Knoten, dann Weg, dann
-  Relation, darin die kleinere Nummer);
-- jeder weitere fällt nur weg, wenn er unter 200 m von einem behaltenen liegt;
-  so entstehen keine Ketten über mehrere hundert Meter;
-- Einträge ohne Namen werden nie zusammengeführt (die meisten Trinkbrunnen),
-  ebenso Einträge mit einem Allerweltsnamen (seit dem 10.11.2026): `brunnen`,
+  „giesswasser“);
+- bei einem eigenen Namen (etwa „Querbeet“) unter 200 m (Haversine,
+  Erdradius 6371,0088 km wie in der App; bis zum 12.11.2026 unter 100 m, dann
+  blieb der Garten „Querbeet“ in Köln mit zwei Knoten 113 m auseinander
+  doppelt);
+- bei einem allgemeinen Namen nur unter 30 m (seit dem 13.11.2026; bis dahin
+  wurden Gattungswörter und Standardnamen nie zusammengeführt, und ein
+  Straßenname galt als eigener Name: zwei Trinkbrunnen „Dorfstrasse“ 193 m
+  auseinander wurden zu einem). Allgemein ist ein
+  Gattungswort aus `ALLERWELTSNAMEN` in `tools/orte.py` (`brunnen`,
   `trinkbrunnen`, `trinkwasser`, `wasser`, `wasch`, `giesswasser`,
   `wasserstelle`, `buecherschrank`, `offenerbuecherschrank`, `buecherbox`,
   `buecherzelle`, `givebox`, `verschenkbox`, `verschenkregal`, `fairteiler`,
   `foodsharing`, `gemeinschaftsgarten`, `garten`, `repaircafe`, `refill`,
   `wasserhahn`, `fontana`, `fontaine`, `fontaene`, `laufbrunnen`,
-  `zierbrunnen` (normalisiert wie beim Vergleich), dazu die Namen, die die App
-  für Orte ohne Namen zeigt, deutsch oder englisch, für jede Art (etwa
-  „Trinkbrunnen“, „Drinking fountain“, „Refill-Station“). Zwei „Brunnen“ 50 m
-  auseinander sind meist zwei Brunnen. Diese Standardnamen (`STANDARDNAMEN`
-  in `tools/orte.py`) gehören zu `ortGarten` … `ortRefill` in den ARB-Dateien
-  der App; wer das eine ändert, ändert das andere.
+  `zierbrunnen`, `trinkwasserspender`, `thermalwassertrinkbrunnen`;
+  normalisiert wie beim Vergleich), einer der Namen, die die App für Orte ohne
+  Namen zeigt, deutsch oder englisch, für jede Art (etwa „Trinkbrunnen“,
+  „Drinking fountain“, „Refill-Station“), oder nur ein Straßenname ohne
+  Hausnummer und ohne weiteren Zusatz („Dorfstrasse“, „Karl-Marx-Straße“,
+  „Lange Gasse“, „Am Markt“, „Rue du Marché“; `strassenname`). Zwei „Brunnen“
+  50 m auseinander sind meist zwei Brunnen, zwei „Bücherzelle“ 1 m
+  auseinander dieselbe. Sobald ein Name einer Gruppe allgemein ist, gilt
+  für die Gruppe die kleinere Grenze. Die Standardnamen (`STANDARDNAMEN` in
+  `tools/orte.py`) gehören zu `ortGarten` … `ortRefill` in den ARB-Dateien
+  der App; wer das eine ändert, ändert das andere;
+- behalten wird der Eintrag mit den meisten Angaben (Adresse, Öffnungszeiten),
+  bei Gleichstand der mit der kleineren ID (erst Knoten, dann Weg, dann
+  Relation, darin die kleinere Nummer);
+- jeder weitere fällt nur weg, wenn er unter der Grenze von einem behaltenen
+  liegt; so entstehen keine Ketten über mehrere hundert Meter;
+- Einträge ohne Namen werden nie zusammengeführt (die meisten Trinkbrunnen).
 
 Jeder Lauf gibt je Land und Art die Anzahl und die Zahl der zusammengeführten
 aus.

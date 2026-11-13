@@ -1,7 +1,7 @@
 """Gemeinsame Regeln für die Orte aus OpenStreetMap: Arten, Etiketten,
 Ausschlüsse, die Umwandlung eines Overpass-Elements in einen Eintrag und das
 Zusammenführen doppelter Einträge."""
-import math, unicodedata
+import math, re, unicodedata
 
 LAENDER = ('de', 'at', 'ch')
 
@@ -86,11 +86,19 @@ def eintrag(element):
 # Doppelte: OSM enthält denselben Ort mehrfach (am 9.11.2026 in DE 91 Paare
 # gleicher Art und gleichen Namens unter etwa 100 m, z. B. dreimal „Querbeet“
 # in Köln). Gleich sind Einträge derselben Art mit demselben Namen (klein, ohne
-# Leer- und Satzzeichen) unter DOPPEL_ABSTAND_M; ohne Namen und mit einem
-# Allerweltsnamen nie. Seit dem 12.11.2026 200 m statt 100 m: Der Garten
-# „Querbeet“ in Köln (Betreiber Querbeet e.V., drei Knoten aus einem
-# Changeset) blieb mit zwei Knoten 113 m auseinander doppelt in der App.
+# Leer- und Satzzeichen); ohne Namen nie. Ein eigener Name gilt unter
+# DOPPEL_ABSTAND_M als derselbe Ort, ein allgemeiner Name (`allerweltsname`:
+# Gattungswort, Standardname der App oder nur ein Straßenname) nur unter
+# DOPPEL_ABSTAND_ALLGEMEIN_M.
+# Seit dem 12.11.2026 200 m statt 100 m: Der Garten „Querbeet“ in Köln
+# (Betreiber Querbeet e.V., drei Knoten aus einem Changeset) blieb mit zwei
+# Knoten 113 m auseinander doppelt in der App. Seit dem 13.11.2026 gelten die
+# 200 m nur für eigene Namen, weil damit auch zwei Trinkbrunnen „Dorfstrasse“
+# 193 m auseinander (CH) zu einem wurden; allgemeine Namen wurden bis dahin
+# nie zusammengeführt, seitdem unter 30 m (in CH dreimal „Bücherzelle“
+# innerhalb von 1 m).
 DOPPEL_ABSTAND_M = 200
+DOPPEL_ABSTAND_ALLGEMEIN_M = 30
 ERDRADIUS_M = 6371008.8  # wie die App (lib/logic/orte_naehe.dart)
 
 # Umlaute und ß wie in den Schritt-IDs der App (ä→ae …), damit die Liste
@@ -98,21 +106,41 @@ ERDRADIUS_M = 6371008.8  # wie die App (lib/logic/orte_naehe.dart)
 # weg („Repair-Café“ → repaircafe).
 _UMSCHRIFT = str.maketrans({'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss'})
 
-# Allerweltsnamen (Runde 38, ergänzt in Runde 39): Zwei Brunnen namens
-# „Brunnen“ 50 m auseinander sind meist zwei Brunnen, keine Doppel (am
-# 10.11.2026 fielen so etwa „Wasch“ 9-mal und „Gießwasser“ 4-mal auf
-# Friedhöfen weg). Schon normalisiert.
+# Allgemeine Namen, Teil 1: die Gattungswörter (Allerweltsnamen; Runde 38,
+# ergänzt in Runde 39 und 45). Die einzige Liste dafür; schon normalisiert.
+# Zwei Brunnen namens „Brunnen“ 50 m auseinander sind meist zwei Brunnen,
+# keine Doppel (am 10.11.2026 fielen mit 100 m für alle Namen etwa „Wasch“
+# 9-mal und „Gießwasser“ 4-mal auf Friedhöfen weg); darum gelten für sie nur
+# DOPPEL_ABSTAND_ALLGEMEIN_M.
 ALLERWELTSNAMEN = frozenset({
     'brunnen', 'trinkbrunnen', 'trinkwasser', 'wasser', 'wasch', 'giesswasser',
     'wasserstelle', 'buecherschrank', 'offenerbuecherschrank', 'buecherbox',
     'buecherzelle', 'givebox', 'verschenkbox', 'verschenkregal', 'fairteiler',
     'foodsharing', 'gemeinschaftsgarten', 'garten', 'repaircafe', 'refill',
     'wasserhahn', 'fontana', 'fontaine', 'fontaene', 'laufbrunnen', 'zierbrunnen',
+    # Runde 45: Gattungswörter unter den Paaren, die 200 m für alle Namen am
+    # 11.11.2026 zusammengeführt hatten (je zwei Brunnen, nach den Etiketten
+    # in OSM verschiedene: Ratingen, Bad Gastein, Neuruppin, Thüringen).
+    'trinkwasserspender', 'thermalwassertrinkbrunnen', 'eurotrinkbrunnen', 'kastenbrunnen',
 })
 
-# Dazu die Standardnamen, die die App für Orte ohne Namen zeigt, deutsch und
-# englisch; seit Runde 39 gelten sie für jede Art (zwei Trinkbrunnen namens
-# „Refill-Station“ bleiben zwei). Gehört zusammen mit ortGarten … ortRefill in
+# Allgemeine Namen, Teil 2: ein Straßenname ohne weiteren Zusatz (Runde 45),
+# etwa „Dorfstrasse“, „Karl-Marx-Straße“, „Lange Gasse“, „Am Markt“,
+# „Rue du Marché“, „Via Cantonale“ (`strassenname`). Zwei Trinkbrunnen
+# „Dorfstrasse“ 193 m auseinander (CH, 11.11.2026) sind zwei Brunnen. Mit
+# Hausnummer oder einem weiteren Wort („Brunnen Dorfstrasse“) ist der Name
+# eigen.
+STRASSEN_WOERTER = ('strasse', 'str', 'weg', 'gasse', 'gaessli', 'gaessle', 'allee', 'platz',
+                    'ring', 'damm', 'steig', 'pfad', 'chaussee', 'promenade', 'zeile',
+                    'markt', 'graben', 'kai', 'quai')
+STRASSEN_VORSATZ = ('am', 'an', 'auf', 'im', 'in', 'zum', 'zur', 'beim', 'unter', 'hinter',
+                    'vor', 'der', 'die', 'den', 'dem', 'des')
+STRASSEN_ANFAENGE = ('rue', 'route', 'chemin', 'avenue', 'place', 'ruelle', 'via', 'viale',
+                     'piazza', 'piazzetta', 'vicolo', 'strada', 'contrada')
+
+# Allgemeine Namen, Teil 3: die Standardnamen, die die App für Orte ohne
+# Namen zeigt, deutsch und englisch; seit Runde 39 gelten sie für jede Art
+# (zwei Trinkbrunnen namens „Refill-Station“ 31 m auseinander bleiben zwei). Gehört zusammen mit ortGarten … ortRefill in
 # lib/l10n/app_de.arb und app_en.arb der App: Wer das eine ändert, ändert das
 # andere (CLAUDE.md hier, docs/claude/lokal.md im App-Repo).
 STANDARDNAMEN = {
@@ -138,10 +166,42 @@ def name_schluessel(name):
 _STANDARD_SCHLUESSEL = frozenset(name_schluessel(n) for namen in STANDARDNAMEN.values() for n in namen)
 
 
+def _strassenwort(wort):
+    """Ein Wort aus Buchstaben (Bindestriche dazwischen, ein Punkt am Ende),
+    das auf eines der STRASSEN_WOERTER endet: „dorfstrasse“,
+    „karl-marx-strasse“, „hauptstr.“."""
+    return (re.fullmatch(r'[a-z]+(-[a-z]+)*\.?', wort) is not None
+            and wort.rstrip('.').endswith(STRASSEN_WOERTER))
+
+
+def strassenname(name):
+    """Nur ein Straßenname, ohne Hausnummer und ohne weiteren Zusatz:
+    ein Straßenwort („Dorfstrasse“), davor höchstens Präpositionen und
+    Artikel aus STRASSEN_VORSATZ („Am Markt“) und, vor einem bloßen
+    Straßenwort, Adjektive auf -e, -er oder -es („Lange Gasse“, „Kölner
+    Straße“; nicht auf -en, sonst wäre „Brunnen Platz“ ein Straßenname);
+    oder ein französischer bzw. italienischer Straßenanfang mit Namen
+    („Rue du Marché“)."""
+    zerlegt = unicodedata.normalize('NFKD', name.lower().translate(_UMSCHRIFT))
+    woerter = ''.join(c for c in zerlegt if not unicodedata.combining(c)).split()
+    if not woerter or any(c.isdigit() for w in woerter for c in w):
+        return False
+    if woerter[0] in STRASSEN_ANFAENGE and len(woerter) > 1:
+        return True
+    letztes, davor = woerter[-1], woerter[:-1]
+    if not _strassenwort(letztes):
+        return False
+    bloss = letztes.rstrip('.') in STRASSEN_WOERTER
+    return all(w in STRASSEN_VORSATZ or (bloss and re.fullmatch(r'[a-z]+(e|er|es)', w))
+               for w in davor)
+
+
 def allerweltsname(name):
-    """Ein Name aus ALLERWELTSNAMEN oder ein Standardname irgendeiner Art."""
+    """Ein allgemeiner Name: ein Gattungswort aus ALLERWELTSNAMEN, ein
+    Standardname irgendeiner Art oder nur ein Straßenname."""
     schluessel = name_schluessel(name)
-    return schluessel in ALLERWELTSNAMEN or schluessel in _STANDARD_SCHLUESSEL
+    return (schluessel in ALLERWELTSNAMEN or schluessel in _STANDARD_SCHLUESSEL
+            or strassenname(name))
 
 
 def abstand_m(a, b):
@@ -163,17 +223,28 @@ def id_schluessel(e):
     return 'nwr'.index(e['id'][0]), int(e['id'][1:])
 
 
+def grenze_m(gruppe):
+    """Abstand, unter dem Einträge einer Gruppe (gleiche Art, gleicher
+    Namensschlüssel) als derselbe Ort gelten: DOPPEL_ABSTAND_ALLGEMEIN_M,
+    sobald ein Name der Gruppe allgemein ist (verschiedene Schreibweisen
+    desselben Schlüssels, etwa „Lange Straße“ und „Langestraße“), sonst
+    DOPPEL_ABSTAND_M."""
+    if any(allerweltsname(e['name']) for e in gruppe):
+        return DOPPEL_ABSTAND_ALLGEMEIN_M
+    return DOPPEL_ABSTAND_M
+
+
 def doppelte_zusammenfuehren(eintraege):
     """Führt doppelte Einträge zusammen und gibt (behaltene, Anzahl
     zusammengeführter je Art) zurück. Je Art und Name gewinnt der Eintrag mit
     den meisten Angaben, bei Gleichstand der mit der kleineren ID; jeder
-    weitere unter DOPPEL_ABSTAND_M von einem behaltenen fällt weg. So liegt
-    jeder weggefallene Eintrag nah an dem, der ihn ersetzt (keine Ketten).
-    Einträge ohne Namen oder mit einem Allerweltsnamen bleiben alle.
-    Die Reihenfolge der behaltenen bleibt wie in `eintraege`."""
+    weitere fällt weg, wenn er unter `grenze_m` (200 m bei eigenen Namen, 30 m
+    bei allgemeinen) von einem behaltenen liegt. So liegt jeder weggefallene
+    Eintrag nah an dem, der ihn ersetzt (keine Ketten). Einträge ohne Namen
+    bleiben alle. Die Reihenfolge der behaltenen bleibt wie in `eintraege`."""
     gruppen = {}
     for e in eintraege:
-        if e.get('name') and not allerweltsname(e['name']):
+        if e.get('name'):
             schluessel = name_schluessel(e['name'])
             if schluessel:
                 gruppen.setdefault((e['k'], schluessel), []).append(e)
@@ -181,9 +252,9 @@ def doppelte_zusammenfuehren(eintraege):
     for (k, _), gruppe in gruppen.items():
         if len(gruppe) < 2:
             continue
-        behalten = []
+        grenze, behalten = grenze_m(gruppe), []
         for e in sorted(gruppe, key=lambda e: (-angaben(e), id_schluessel(e))):
-            if any(abstand_m(e, b) < DOPPEL_ABSTAND_M for b in behalten):
+            if any(abstand_m(e, b) < grenze for b in behalten):
                 weg.add(e['id'])
                 zusammengefuehrt[k] = zusammengefuehrt.get(k, 0) + 1
             else:

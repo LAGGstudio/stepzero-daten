@@ -30,7 +30,7 @@ def main():
 table{border-collapse:collapse}td,th{border-bottom:1px solid #EDE3CC;padding:.3rem .8rem;text-align:right}td:first-child,th:first-child{text-align:left}</style></head>
 <body><h1>Step Zero: Orte in deiner Nähe</h1>
 <p>Wöchentlich aus OpenStreetMap geholte Orte für die App Step Zero (DE, AT, CH),
-gleiche Orte unter 200 m zusammengeführt. Quelle und Ablauf: <a href="%s">%s</a>.</p>
+gleiche Orte zusammengeführt (eigene Namen unter 200 m, allgemeine wie „Brunnen“ unter 30 m). Quelle und Ablauf: <a href="%s">%s</a>.</p>
 <ul>%s</ul>
 <table><tr><th>Art</th>%s</tr>%s<tr><td><b>Zusammen</b></td>%s</tr></table>
 <p>Daten © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap-Mitwirkende</a>,
