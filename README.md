@@ -118,7 +118,8 @@ aus.
 GitHub Actions (`.github/workflows/orte.yml`) läuft montags um 03:23 UTC (seit
 dem 12.11.2026 eine krumme Minute; die GitHub-Doku: „High load times include the
 start of every hour. If the load is sufficiently high enough, some queued jobs
-may be dropped.“) und per Hand: Tests, je Land der tägliche Geofabrik-Auszug
+may be dropped.“), alle Jobs fest auf `ubuntu-24.04` (seit dem 14.11.2026; GitHub
+meldete in den Läufen, dass `ubuntu-latest` auf Ubuntu 26 umgestellt wird), und per Hand: Tests, je Land der tägliche Geofabrik-Auszug
 (`tools/hole_orte.py` mit `tools/geofabrik.py`, siehe unten), Zusammenführen der
 Doppelten, Prüfung gegen die veröffentlichte Fassung (`tools/pruefe_orte.py`:
 Schema, Koordinaten im Land, höchstens 8 MB, Lizenz mit OpenStreetMap und der

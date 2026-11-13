@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   bauen:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       stand: ${{ steps.stand.outputs.stand }}
     steps:
@@ -70,7 +70,7 @@ jobs:
 
   veroeffentlichen:
     needs: bauen
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -82,7 +82,7 @@ jobs:
   # Einträge je Land), zugleich Aktivität gegen die 60-Tage-Regel.
   stand:
     needs: [bauen, veroeffentlichen]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -108,7 +108,7 @@ jobs:
   melden:
     needs: [bauen, veroeffentlichen, stand]
     if: ${{ failure() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
     env:

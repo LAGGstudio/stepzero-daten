@@ -730,6 +730,14 @@ class Workflow(unittest.TestCase):
         self.assertEqual(len(teile), 2, name)
         return re.split(r'\n  [a-z_]+:\n', teile[1], maxsplit=1)[0]
 
+    def test_runner_fest_auf_ubuntu_24_04(self):
+        # Seit dem 14.11.2026: GitHub stellt ubuntu-latest auf Ubuntu 26 um (Hinweis in den
+        # Läufen); jeder Job läuft fest auf ubuntu-24.04.
+        import re
+        runner = re.findall(r'^    runs-on: (\S+)$', self.text, re.M)
+        self.assertEqual(runner, ['ubuntu-24.04'] * 4)
+        self.assertNotIn('ubuntu-latest', self.text)
+
     def test_krumme_minute_und_osmium_gepinnt(self):
         self.assertIn("- cron: '23 3 * * 1'", self.text)
         self.assertIn("pip install 'osmium==4.3.*'", self.text)
