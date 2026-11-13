@@ -120,7 +120,7 @@ ALLERWELTSNAMEN = frozenset({
     'wasserhahn', 'fontana', 'fontaine', 'fontaene', 'laufbrunnen', 'zierbrunnen',
     # Runde 45: Gattungswörter unter den Paaren, die 200 m für alle Namen am
     # 11.11.2026 zusammengeführt hatten (je zwei Brunnen, nach den Etiketten
-    # in OSM verschiedene: Ratingen, Bad Gastein, Neuruppin, Thüringen).
+    # in OSM verschiedene: Ratingen, Bad Hofgastein, Neuruppin, Meiningen).
     'trinkwasserspender', 'thermalwassertrinkbrunnen', 'eurotrinkbrunnen', 'kastenbrunnen',
 })
 
