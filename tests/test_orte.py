@@ -302,14 +302,20 @@ class Doppelte(unittest.TestCase):
 
     def test_strassennamen_ohne_zusatz_sind_allgemein(self):
         for name in ('Dorfstrasse', 'Dorfstraße', 'Karl-Marx-Straße', 'Hauptstr.', 'Lindenweg',
-                     'Brunngasse', 'Mittelgässli', 'Marktplatz', 'Lange Gasse', 'Kölner Straße',
-                     'Am Markt', 'An der Allee', 'Rue du Marché', 'Via Cantonale', 'Place de la Gare'):
+                     'Brunngasse', 'Mittelgässli', 'Marktplatz', 'Lange Gasse', 'Alter Markt',
+                     'Am Alten Markt', 'Am Markt', 'An der Allee', 'Rue du Marché', 'Via Cantonale',
+                     'Place de la Gare'):
             self.assertTrue(orte.strassenname(name), name)
             self.assertTrue(allerweltsname(name), name)
-        # Gegenprobe: mit Hausnummer, mit Zusatz oder ohne Straßenwort eigen.
+        # Gegenprobe: mit Hausnummer, mit Zusatz oder ohne Straßenwort eigen;
+        # darunter Namen vom 11.11.2026, die eine Regel nach der Endung (-e,
+        # -er) für Straßennamen hielt. „Kölner Straße“ (Adjektiv nicht in der
+        # Liste) zählt darum auch als eigen.
         for name in ('Dorfstrasse 5', 'Brunnen Dorfstrasse', 'Brunnen am Markt', 'Brunnen Marktplatz',
                      'Gemeinschaftsgarten Lindenweg', 'Fontaine de la Place', 'Der Läufer', 'Querbeet',
-                     'Rue', 'Am Brunnen', 'Die Lesebank'):
+                     'Rue', 'Am Brunnen', 'Die Lesebank', 'Bücherzelle am Markt', 'Trinkwassersäule Markt',
+                     'Bücherzelle Danziger Straße', 'Trinkwasserspender am Roßweiner Markt',
+                     'Kölner Straße'):
             self.assertFalse(orte.strassenname(name), name)
             self.assertFalse(allerweltsname(name), name)
 

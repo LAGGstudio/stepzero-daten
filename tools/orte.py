@@ -135,6 +135,12 @@ STRASSEN_WOERTER = ('strasse', 'str', 'weg', 'gasse', 'gaessli', 'gaessle', 'all
                     'markt', 'graben', 'kai', 'quai')
 STRASSEN_VORSATZ = ('am', 'an', 'auf', 'im', 'in', 'zum', 'zur', 'beim', 'unter', 'hinter',
                     'vor', 'der', 'die', 'den', 'dem', 'des')
+# Adjektive nur aus dieser Liste („Lange Gasse“, „Am Alten Markt“); eine Regel
+# nach der Endung (-e, -er) hielt „Bücherzelle am Markt“ und „Trinkwassersäule
+# Markt“ für Straßennamen. „Kölner Straße“ gilt darum als eigener Name.
+STRASSEN_ADJEKTIVE = frozenset(w + e for w in ('alt', 'neu', 'lang', 'hoh', 'klein', 'gross', 'ober',
+                                               'unter', 'breit', 'kurz', 'hinter', 'vorder', 'mittler')
+                               for e in ('e', 'er', 'es', 'en'))
 STRASSEN_ANFAENGE = ('rue', 'route', 'chemin', 'avenue', 'place', 'ruelle', 'via', 'viale',
                      'piazza', 'piazzetta', 'vicolo', 'strada', 'contrada')
 
@@ -177,11 +183,10 @@ def _strassenwort(wort):
 def strassenname(name):
     """Nur ein Straßenname, ohne Hausnummer und ohne weiteren Zusatz:
     ein Straßenwort („Dorfstrasse“), davor höchstens Präpositionen und
-    Artikel aus STRASSEN_VORSATZ („Am Markt“) und, vor einem bloßen
-    Straßenwort, Adjektive auf -e, -er oder -es („Lange Gasse“, „Kölner
-    Straße“; nicht auf -en, sonst wäre „Brunnen Platz“ ein Straßenname);
-    oder ein französischer bzw. italienischer Straßenanfang mit Namen
-    („Rue du Marché“)."""
+    Artikel aus STRASSEN_VORSATZ („Am Markt“) und Adjektive aus
+    STRASSEN_ADJEKTIVE („Lange Gasse“, „Am Alten Markt“); oder ein
+    französischer bzw. italienischer Straßenanfang mit Namen („Rue du
+    Marché“)."""
     zerlegt = unicodedata.normalize('NFKD', name.lower().translate(_UMSCHRIFT))
     woerter = ''.join(c for c in zerlegt if not unicodedata.combining(c)).split()
     if not woerter or any(c.isdigit() for w in woerter for c in w):
@@ -191,9 +196,7 @@ def strassenname(name):
     letztes, davor = woerter[-1], woerter[:-1]
     if not _strassenwort(letztes):
         return False
-    bloss = letztes.rstrip('.') in STRASSEN_WOERTER
-    return all(w in STRASSEN_VORSATZ or (bloss and re.fullmatch(r'[a-z]+(e|er|es)', w))
-               for w in davor)
+    return all(w in STRASSEN_VORSATZ or w in STRASSEN_ADJEKTIVE for w in davor)
 
 
 def allerweltsname(name):
