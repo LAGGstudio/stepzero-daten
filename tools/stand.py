@@ -13,7 +13,23 @@ sys.path.insert(0, os.path.dirname(__file__))
 from orte import LAENDER  # noqa: E402
 
 
+def quelle_aus(pfad):
+    """Die Quelle des Laufs aus der Datei, die tools/hole_orte.py schreibt
+    (ORTE_QUELLEN_DATEI, je Land): kamen alle Länder von derselben, ihr Name,
+    sonst je Land („de: overpass (…), at: geofabrik, ch: geofabrik“). Ohne
+    Datei None."""
+    if not pfad or not os.path.exists(pfad):
+        return None
+    with open(pfad, encoding='utf-8') as d:
+        je_land = json.load(d)
+    namen = [je_land.get(land, '?') for land in LAENDER]
+    if len(set(namen)) == 1:
+        return namen[0]
+    return ', '.join('%s: %s' % (land, name) for land, name in zip(LAENDER, namen))
+
+
 def berechnen(ordner, heute=None, quelle=None):
+    quelle = quelle or quelle_aus(os.environ.get('ORTE_QUELLEN_DATEI'))
     stand, eintraege = {}, {}
     for land in LAENDER:
         with open(os.path.join(ordner, land + '.json'), encoding='utf-8') as d:

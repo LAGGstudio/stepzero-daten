@@ -9,14 +9,21 @@ Relationen `center` als Mitte des umschließenden Rechtecks), damit dieselbe
 Umwandlung (`hole_orte.umwandeln`) und dieselbe Prüfung greifen.
 
 Der Download (seit dem 12.11.2026, Audit 11.5) muss so lang sein wie
-Content-Length und zur .md5 passen, sonst gilt er als gescheitert; bis zu
-VERSUCHE Versuche mit PAUSE dazwischen. Geofabrik leitet `-latest.osm.pbf`
-per 307 weiter (AT, CH auf die Datei mit Datum, DE auf den Spiegel der GWDG;
-am 12.11.2026 gab `germany-latest.osm.pbf.md5` bei Geofabrik 404), darum gilt
-zuerst die .md5 neben der Datei, die wirklich kam, sonst die neben der
-`-latest`-Adresse.
+Content-Length und zur .md5 passen, sonst gilt er als gescheitert. Geofabrik
+leitet `-latest.osm.pbf` weiter (AT, CH auf die Datei mit Datum, DE auf den
+Spiegel der GWDG; am 12.11.2026 gab `germany-latest.osm.pbf.md5` bei Geofabrik
+404; seit dem 20.11.2026 zuerst per 301 auf `europe/<land>/<land>-latest…`),
+darum gilt zuerst die .md5 neben der Datei, die wirklich kam, sonst die neben
+der `-latest`-Adresse.
+
+Seit dem 20.11.2026 (der Lauf vom 16.11.2026 scheiterte nach drei Versuchen
+in vier Minuten, jedes Mal sofort mit „Network is unreachable“): bis zu fünf
+Versuche mit wachsender Pause (PAUSEN), zusammen höchstens ZEITGRENZE; nach
+einem Verbindungsfehler schreibt `netz_diagnose` je Adresse des Hosts, was
+der Verbindungsaufbau ergab. Scheitert alles, wirft `laden` Gescheitert, und
+`hole_orte.holen` fällt auf Overpass zurück.
 """
-import hashlib, http.client, os, re, sys, tempfile, time, urllib.error, urllib.request
+import hashlib, http.client, os, re, socket, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from orte import ARTEN, art, ausgeschlossen  # noqa: E402
@@ -30,12 +37,48 @@ USER_AGENT = 'StepZero-Daten/1.0 (info.laggstudio@gmail.com)'
 ETIKETTEN = sorted({kv for _, varianten in ARTEN for etiketten in varianten for kv in etiketten.items()})
 
 
-VERSUCHE = 3
-PAUSE = 120  # Sekunden zwischen zwei Versuchen
+# Pausen in Sekunden nach dem 1., 2., 3. und 4. gescheiterten Versuch, also
+# bis zu fünf Versuche; bis zum 20.11.2026 drei Versuche mit je 120 s.
+PAUSEN = (60, 120, 240, 480)
+# Je Land für alle Versuche zusammen: Würde die nächste Pause darüber
+# hinausführen, gibt es keinen weiteren Versuch (ein Download von DE dauerte
+# in den Läufen bis zum 13.11.2026 zwischen 31 und 388 s).
+ZEITGRENZE = 30 * 60
 
 
 class Unvollstaendig(Exception):
     """Ein Versuch lieferte nicht die ganze Datei (Länge, Prüfsumme)."""
+
+
+class Gescheitert(SystemExit):
+    """Der Auszug kam nach allen Versuchen nicht vollständig; ohne Rückfall
+    endet der Lauf damit (Exit-Code ungleich 0)."""
+
+
+def netz_diagnose(url, aus=None, warten=10):
+    """Nach einem Verbindungsfehler: jede Adresse des Hosts einzeln. Python
+    meldet von allen Adressen nur den Fehler der letzten; am 16.11.2026 stand
+    so nur „Network is unreachable“ im Protokoll, ohne Host und ohne Adresse."""
+    aus = aus or sys.stderr
+    teile = urllib.parse.urlsplit(url)
+    host, port = teile.hostname, teile.port or (443 if teile.scheme == 'https' else 80)
+    try:
+        adressen = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as fehler:
+        print('Diagnose %s: Namensauflösung gescheitert: %s' % (host, fehler), file=aus)
+        return
+    for familie, typ, proto, _, adresse in adressen:
+        s = socket.socket(familie, typ, proto)
+        s.settimeout(warten)
+        try:
+            s.connect(adresse)
+            ergebnis = 'Verbindung steht'
+        except OSError as fehler:
+            ergebnis = str(fehler)
+        finally:
+            s.close()
+        print('Diagnose %s: %s %s Port %d: %s'
+              % (host, 'IPv6' if familie == socket.AF_INET6 else 'IPv4', adresse[0], port, ergebnis), file=aus)
 
 
 def _md5_lesen(url):
@@ -82,11 +125,17 @@ def _einmal_laden(url, ziel):
     return ende, summe.hexdigest()
 
 
-def laden(land, ziel, quelle=QUELLE, versuche=VERSUCHE, pause=PAUSE):
+def laden(land, ziel, quelle=QUELLE, pausen=PAUSEN, grenze=ZEITGRENZE, schlafen=None, uhr=None):
     """Lädt den Auszug nach `ziel` (Datei), in Stücken, geprüft gegen
-    Content-Length und .md5; bis zu `versuche` Versuche. Gibt die Adresse
-    zurück, von der er kam."""
+    Content-Length und .md5; ein Versuch mehr als `pausen`, nach dem n-ten
+    gescheiterten `pausen[n-1]` Sekunden Pause, alles zusammen höchstens
+    `grenze` Sekunden. Gibt die Adresse zurück, von der er kam; sonst
+    Gescheitert."""
     url = quelle % REGION[land]
+    # Erst beim Aufruf nachsehen, nicht als Vorgabewert binden.
+    schlafen, uhr = schlafen or time.sleep, uhr or time.monotonic
+    versuche = len(pausen) + 1
+    anfang = uhr()
     for versuch in range(1, versuche + 1):
         try:
             ende, summe = _einmal_laden(url, ziel)
@@ -95,10 +144,19 @@ def laden(land, ziel, quelle=QUELLE, versuche=VERSUCHE, pause=PAUSE):
                 raise Unvollstaendig('Prüfsumme %s, erwartet %s' % (summe, erwartet))
             return ende
         except (Unvollstaendig, OSError, http.client.HTTPException) as fehler:
+            letzter = fehler
             print('%s: Versuch %d von %d gescheitert: %s' % (land, versuch, versuche, fehler), file=sys.stderr)
-            if versuch < versuche:
-                time.sleep(pause)
-    raise SystemExit('%s: Geofabrik-Auszug nach %d Versuchen nicht vollständig' % (land, versuche))
+        if versuch == versuche:
+            break
+        pause = pausen[versuch - 1]
+        if uhr() - anfang + pause > grenze:
+            print('%s: Zeitgrenze von %d s erreicht, kein weiterer Versuch' % (land, grenze), file=sys.stderr)
+            break
+        schlafen(pause)
+    # Kam gar keine Antwort (kein HTTP-Status), sagt die Diagnose, woran.
+    if isinstance(letzter, OSError) and not isinstance(letzter, urllib.error.HTTPError):
+        netz_diagnose(url)
+    raise Gescheitert('%s: Geofabrik-Auszug nach %d Versuchen nicht vollständig' % (land, versuch))
 
 
 def _mitte(punkte):

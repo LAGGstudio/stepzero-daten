@@ -99,7 +99,7 @@ class Rueckfall(unittest.TestCase):
         self.assertIn(('repair', 'assisted_self_service'), geofabrik.ETIKETTEN)
         self.assertIn(('drinking_water:refill', 'yes'), geofabrik.ETIKETTEN)
 
-    def test_quelle_geofabrik_standard_overpass_nur_von_hand(self):
+    def test_quelle_geofabrik_standard_overpass_von_hand_ohne_auszug(self):
         import geofabrik
         aufrufe = []
         alt_o, alt_g = hole_orte.overpass_holen, geofabrik.holen
@@ -111,11 +111,12 @@ class Rueckfall(unittest.TestCase):
             geofabrik.holen = lambda land: aufrufe.append(('geofabrik', land)) or {'elements': []}
             os.environ.pop('ORTE_QUELLE', None)
             self.assertEqual(hole_orte.holen('ch'), {'elements': []})
-            self.assertEqual(aufrufe, [('geofabrik', 'ch')])
+            self.assertEqual(aufrufe, [('geofabrik', 'ch')], 'kommt der Auszug, bleibt Overpass aus dem Spiel')
+            self.assertEqual(hole_orte.genutzt['ch'], 'geofabrik')
             os.environ['ORTE_QUELLE'] = 'geofabrik'
             hole_orte.holen('at')
             self.assertEqual(aufrufe[-1], ('geofabrik', 'at'))
-            # Overpass nur von Hand und ohne Rückfall auf den Auszug.
+            # Von Hand nur Overpass, ohne Rückfall auf den Auszug.
             os.environ['ORTE_QUELLE'] = 'overpass'
             with self.assertRaises(SystemExit):
                 hole_orte.holen('de')
@@ -601,8 +602,8 @@ class _Geofabrik(http.server.BaseHTTPRequestHandler):
         pass
 
 
-class Download(unittest.TestCase):
-    """Audit 11.5: Länge und .md5 prüfen, bis zu drei Versuche."""
+class _MitGeofabrik:
+    """Der lokale Server für die Download-Tests (selbst ohne Tests)."""
     INHALT = b'PBF' * 400  # 1200 Byte
 
     @classmethod
@@ -634,11 +635,15 @@ class Download(unittest.TestCase):
     def tearDown(self):
         sys.stderr = self.stderr
 
-    def laden(self):
-        return self.geofabrik.laden('ch', self.ziel, quelle=self.basis + '%s-latest.osm.pbf', pause=0)
-
     def pbf_abrufe(self):
         return [p for p in _Geofabrik.anfragen if p.endswith('261111.osm.pbf')]
+
+
+class Download(_MitGeofabrik, unittest.TestCase):
+    """Audit 11.5: Länge und .md5 prüfen; hier mit drei Versuchen."""
+
+    def laden(self):
+        return self.geofabrik.laden('ch', self.ziel, quelle=self.basis + '%s-latest.osm.pbf', pausen=(0, 0))
 
     def test_vollstaendig_und_md5_neben_der_datei(self):
         ende = self.laden()
@@ -692,6 +697,267 @@ class Download(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.laden()
         self.assertIn('ohne Content-Length', sys.stderr.getvalue())
+
+
+class Wiederholung(_MitGeofabrik, unittest.TestCase):
+    """Seit dem 20.11.2026: wachsende Pausen, Zeitgrenze, Diagnose. Der Lauf
+    vom 16.11.2026 gab nach drei Versuchen in vier Minuten auf."""
+
+    def setUp(self):
+        super().setUp()
+        self.pausen = []
+
+    def laden(self, **mehr):
+        mehr.setdefault('schlafen', self.pausen.append)
+        return self.geofabrik.laden('ch', self.ziel, quelle=self.basis + '%s-latest.osm.pbf', **mehr)
+
+    def test_vorgabe_fuenf_versuche_in_hoechstens_30_minuten(self):
+        self.assertEqual(self.geofabrik.PAUSEN, (60, 120, 240, 480))
+        self.assertEqual(list(self.geofabrik.PAUSEN), sorted(set(self.geofabrik.PAUSEN)), 'jede Pause länger')
+        self.assertLessEqual(sum(self.geofabrik.PAUSEN), self.geofabrik.ZEITGRENZE)
+        self.assertEqual(self.geofabrik.ZEITGRENZE, 30 * 60)
+
+    def test_wachsende_pause_bis_es_klappt(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [
+            (503, {}, b'busy'), (503, {}, b'busy'), (503, {}, b'busy'), (200, {}, self.INHALT)]
+        ende = self.laden()
+        self.assertTrue(ende.endswith('/europe/switzerland-261111.osm.pbf'))
+        self.assertEqual(self.pausen, [60, 120, 240])
+        self.assertEqual(len(self.pbf_abrufe()), 4)
+        self.assertIn('Versuch 3 von 5 gescheitert', sys.stderr.getvalue())
+        with open(self.ziel, 'rb') as d:
+            self.assertEqual(d.read(), self.INHALT)
+
+    def test_fuenf_versuche_dann_gescheitert(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(503, {}, b'busy')]
+        with self.assertRaises(self.geofabrik.Gescheitert) as ctx:
+            self.laden()
+        self.assertIn('nach 5 Versuchen', str(ctx.exception))
+        self.assertIsInstance(ctx.exception, SystemExit)
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(self.pausen, [60, 120, 240, 480])
+        self.assertEqual(len(self.pbf_abrufe()), 5)
+        # Der Server hat geantwortet (503): keine Netz-Diagnose.
+        self.assertNotIn('Diagnose', sys.stderr.getvalue())
+
+    def test_zeitgrenze_beendet_die_versuche(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(503, {}, b'busy')]
+        # Jeder Versuch kostet 500 s: Nach dem zweiten stehen 1000 s auf der
+        # Uhr, mit der Pause von 120 s wären es mehr als die Grenze von 1100 s.
+        zeit = iter(range(0, 100000, 500))
+        with self.assertRaises(self.geofabrik.Gescheitert) as ctx:
+            self.laden(grenze=1100, uhr=lambda: next(zeit))
+        self.assertEqual(self.pausen, [60])
+        self.assertEqual(len(self.pbf_abrufe()), 2)
+        self.assertIn('nach 2 Versuchen', str(ctx.exception))
+        self.assertIn('Zeitgrenze von 1100 s erreicht', sys.stderr.getvalue())
+
+    def test_keine_verbindung_wiederholen_dann_diagnose_je_adresse(self):
+        # Wie am 16.11.2026: Es kommt gar keine Verbindung zustande. Hier ein
+        # Port, auf dem niemand lauscht.
+        import socket
+        s = socket.socket()
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+        s.close()
+        with self.assertRaises(self.geofabrik.Gescheitert):
+            self.geofabrik.laden('ch', self.ziel, quelle='http://127.0.0.1:%d/%%s-latest.osm.pbf' % port,
+                                 schlafen=self.pausen.append)
+        self.assertEqual(self.pausen, [60, 120, 240, 480])
+        protokoll = sys.stderr.getvalue()
+        self.assertEqual(protokoll.count('gescheitert: <urlopen error'), 5)
+        self.assertIn('Diagnose 127.0.0.1: IPv4 127.0.0.1 Port %d: ' % port, protokoll)
+        self.assertIn('Connection refused', protokoll.split('Diagnose', 1)[1])
+
+    def test_diagnose_meldet_auch_eine_erreichbare_adresse(self):
+        aus = io.StringIO()
+        self.geofabrik.netz_diagnose(self.basis + 'x', aus=aus)
+        self.assertIn('IPv4 127.0.0.1 Port %d: Verbindung steht' % self.server.server_port, aus.getvalue())
+        self.geofabrik.netz_diagnose('https://gibt-es-nicht.invalid/x', aus=aus)
+        self.assertIn('Diagnose gibt-es-nicht.invalid: Namensauflösung gescheitert', aus.getvalue())
+
+
+class RueckfallOverpass(unittest.TestCase):
+    """Seit dem 20.11.2026: Kommt der Auszug nach allen Versuchen nicht,
+    fragt das Land Overpass, zwei Server nacheinander; scheitert auch das,
+    endet der Lauf rot und veröffentlicht nichts."""
+    S1 = 'https://overpass.private.coffee/api/interpreter'
+    S2 = 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+
+    def setUp(self):
+        import geofabrik
+        self.geofabrik = geofabrik
+        self.alt = (hole_orte._overpass_einmal, geofabrik.holen, geofabrik._einmal_laden, geofabrik.netz_diagnose,
+                    hole_orte.overpass_holen, hole_orte.holen)
+        self.stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        self.anfragen, self.pausen = [], []
+        hole_orte.genutzt.clear()
+        os.environ.pop('ORTE_QUELLE', None)
+        os.environ.pop('ORTE_QUELLEN_DATEI', None)
+
+    def tearDown(self):
+        sys.stderr = self.stderr
+        (hole_orte._overpass_einmal, self.geofabrik.holen, self.geofabrik._einmal_laden, self.geofabrik.netz_diagnose,
+         hole_orte.overpass_holen, hole_orte.holen) = self.alt
+        os.environ.pop('ORTE_QUELLEN_DATEI', None)
+
+    def frisch(self, n=1):
+        return {'osm3s': {'timestamp_osm_base': datetime.date.today().isoformat() + 'T00:00:00Z'},
+                'elements': [knoten(i, {'amenity': 'drinking_water'}) for i in range(1, n + 1)]}
+
+    def server(self, antworten):
+        """Ersetzt den Abruf: je Server eine Liste aus Antworten oder
+        Ausnahmen; die letzte gilt weiter."""
+        def einmal(endpunkt, daten):
+            self.anfragen.append(endpunkt)
+            liste = antworten[endpunkt]
+            a = liste.pop(0) if len(liste) > 1 else liste[0]
+            if isinstance(a, Exception):
+                raise a
+            return a
+        hole_orte._overpass_einmal = einmal
+
+    def overpass(self, **mehr):
+        return hole_orte.overpass_holen('de', schlafen=self.pausen.append, **mehr)
+
+    def test_zwei_server_in_dieser_reihenfolge(self):
+        self.assertEqual(hole_orte.ENDPUNKTE, (self.S1, self.S2))
+        self.assertEqual(hole_orte.OVERPASS_PAUSEN, (30, 90))
+        self.assertGreaterEqual(hole_orte.OVERPASS_PAUSEN[0], 30, 'das Wiki bittet um mindestens 30 s')
+        self.assertEqual(hole_orte.OVERPASS_ZEITGRENZE, 20 * 60)
+        self.assertNotIn('overpass-api.de', ' '.join(hole_orte.ENDPUNKTE))
+
+    def test_erster_server_antwortet_beim_dritten_versuch(self):
+        self.server({self.S1: [OSError('timed out'), OSError('HTTP Error 504'), self.frisch()], self.S2: [self.frisch()]})
+        self.assertEqual(len(self.overpass()['elements']), 1)
+        self.assertEqual(self.anfragen, [self.S1] * 3)
+        self.assertEqual(self.pausen, [30, 90], 'wachsende Pause')
+        self.assertEqual(hole_orte.genutzt['de'], 'overpass (overpass.private.coffee)')
+
+    def test_zweiter_server_nach_drei_versuchen_am_ersten(self):
+        self.server({self.S1: [OSError('HTTP Error 429: Too Many Requests')], self.S2: [self.frisch(2)]})
+        self.assertEqual(len(self.overpass()['elements']), 2)
+        self.assertEqual(self.anfragen, [self.S1] * 3 + [self.S2])
+        self.assertEqual(self.pausen, [30, 90])
+        self.assertEqual(hole_orte.genutzt['de'], 'overpass (maps.mail.ru)')
+        self.assertIn('overpass.private.coffee: Versuch 3 von 3 gescheitert', sys.stderr.getvalue())
+
+    def test_unbrauchbare_antwort_gleich_der_naechste_server(self):
+        alt = {'osm3s': {'timestamp_osm_base': '2026-06-01T00:00:00Z'}, 'elements': [knoten(1, {})]}
+        self.server({self.S1: [alt], self.S2: [self.frisch()]})
+        self.overpass()
+        self.assertEqual(self.anfragen, [self.S1, self.S2])
+        self.assertEqual(self.pausen, [], 'ohne Pause und ohne zweiten Versuch')
+        self.assertIn('Tage alt', sys.stderr.getvalue())
+
+    def test_beide_server_scheitern(self):
+        self.server({self.S1: [OSError('timed out')], self.S2: [OSError('HTTP Error 504')]})
+        with self.assertRaises(SystemExit) as ctx:
+            self.overpass()
+        self.assertEqual(str(ctx.exception), 'de: Overpass nicht erreichbar (overpass.private.coffee, maps.mail.ru)')
+        self.assertEqual(self.anfragen, [self.S1] * 3 + [self.S2] * 3)
+        self.assertEqual(self.pausen, [30, 90, 30, 90])
+        self.assertNotIn('de', hole_orte.genutzt)
+
+    def test_zeitgrenze_fuer_overpass(self):
+        self.server({self.S1: [OSError('timed out')], self.S2: [self.frisch()]})
+        # Jeder Abruf kostet 600 s; nach dem zweiten wären es mit der Pause
+        # von 90 s mehr als die 20 Minuten.
+        zeit = iter(range(0, 100000, 600))
+        with self.assertRaises(SystemExit):
+            self.overpass(uhr=lambda: next(zeit))
+        self.assertEqual(self.anfragen, [self.S1] * 2, 'kein dritter Versuch, kein zweiter Server')
+        self.assertIn('Zeitgrenze von 1200 s für Overpass erreicht', sys.stderr.getvalue())
+
+    def test_auszug_gescheitert_dann_overpass(self):
+        def auszug(land):
+            raise self.geofabrik.Gescheitert('%s: Geofabrik-Auszug nach 5 Versuchen nicht vollständig' % land)
+        self.geofabrik.holen = auszug
+        self.server({self.S1: [self.frisch(3)], self.S2: [self.frisch()]})
+        roh = hole_orte.holen('at')
+        self.assertEqual(len(roh['elements']), 3)
+        self.assertEqual(hole_orte.genutzt['at'], 'overpass (overpass.private.coffee)')
+        self.assertIn('nach 5 Versuchen nicht vollständig; Rückfall auf Overpass', sys.stderr.getvalue())
+
+    def test_wie_am_16_11_netz_nicht_erreichbar_bis_zum_rueckfall(self):
+        # Der ganze Weg mit dem Fehler aus dem Protokoll des Laufs 43860656823.
+        import urllib.error
+        versuche, diagnosen, pausen = [], [], []
+
+        def einmal(url, ziel):
+            versuche.append(url)
+            raise urllib.error.URLError(OSError(101, 'Network is unreachable'))
+        self.geofabrik._einmal_laden = einmal
+        self.geofabrik.netz_diagnose = lambda url, **k: diagnosen.append(url)
+        # geofabrik.holen ruft laden ohne eigene Pause: time.sleep ersetzen.
+        alt_sleep = self.geofabrik.time.sleep
+        self.geofabrik.time.sleep = pausen.append
+        try:
+            self.server({self.S1: [self.frisch(4)], self.S2: [self.frisch()]})
+            roh = hole_orte.holen('de')
+        finally:
+            self.geofabrik.time.sleep = alt_sleep
+        self.assertEqual(versuche, ['https://download.geofabrik.de/europe/germany-latest.osm.pbf'] * 5)
+        self.assertEqual(pausen, [60, 120, 240, 480])
+        self.assertEqual(diagnosen, versuche[:1], 'eine Diagnose nach dem letzten Versuch')
+        self.assertEqual(sys.stderr.getvalue().count('[Errno 101] Network is unreachable'), 5)
+        self.assertEqual(len(roh['elements']), 4)
+        self.assertEqual(hole_orte.genutzt['de'], 'overpass (overpass.private.coffee)')
+
+    def test_alles_scheitert_lauf_rot_nichts_halbes(self):
+        # CH kommt, AT scheitert an Auszug und Overpass: Exit ungleich 0, kein
+        # at.json, keine Quellen-Datei; die Prüfung fände die Lücke auch.
+        def auszug(land):
+            if land == 'ch':
+                return self.frisch(2)
+            raise self.geofabrik.Gescheitert('%s: Geofabrik-Auszug nach 5 Versuchen nicht vollständig' % land)
+        self.geofabrik.holen = auszug
+        self.server({self.S1: [OSError('timed out')], self.S2: [OSError('timed out')]})
+        hole_orte.overpass_holen = lambda land, alt=hole_orte.overpass_holen: alt(land, schlafen=self.pausen.append)
+        ziel = tempfile.mkdtemp()
+        quellen = os.path.join(tempfile.mkdtemp(), 'quellen.json')
+        os.environ['ORTE_QUELLEN_DATEI'] = quellen
+        argv, stdout = sys.argv, sys.stdout
+        sys.argv, sys.stdout = ['hole_orte.py', ziel, 'ch', 'at', 'de'], io.StringIO()
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                hole_orte.main()
+        finally:
+            sys.argv, sys.stdout = argv, stdout
+        self.assertNotIn(ctx.exception.code, (0, None), 'der Schritt im Workflow scheitert')
+        self.assertEqual(sorted(os.listdir(ziel)), ['ch.json'])
+        self.assertFalse(os.path.exists(quellen))
+        self.assertIn('at: Datei fehlt', pruefe_orte.pruefen(ziel))
+        self.assertIn('de: Datei fehlt', pruefe_orte.pruefen(ziel))
+
+    def test_quellen_datei_fuer_stand_json(self):
+        import stand
+        self.geofabrik.holen = lambda land: (_ for _ in ()).throw(self.geofabrik.Gescheitert(land)) if land == 'de' \
+            else self.frisch(2)
+        self.server({self.S1: [OSError('timed out')], self.S2: [self.frisch(2)]})
+        hole_orte.overpass_holen = lambda land, alt=hole_orte.overpass_holen: alt(land, schlafen=self.pausen.append)
+        ziel = tempfile.mkdtemp()
+        quellen = os.path.join(tempfile.mkdtemp(), 'quellen.json')
+        os.environ['ORTE_QUELLEN_DATEI'] = quellen
+        argv, stdout = sys.argv, sys.stdout
+        sys.argv, sys.stdout = ['hole_orte.py', ziel], io.StringIO()
+        try:
+            hole_orte.main()
+            ausgabe = sys.stdout.getvalue()
+        finally:
+            sys.argv, sys.stdout = argv, stdout
+        self.assertIn('Quelle overpass (maps.mail.ru)', ausgabe)
+        self.assertIn('Quelle geofabrik', ausgabe)
+        with open(quellen, encoding='utf-8') as d:
+            self.assertEqual(json.load(d), {'de': 'overpass (maps.mail.ru)', 'at': 'geofabrik', 'ch': 'geofabrik'})
+        self.assertEqual(stand.quelle_aus(quellen), 'de: overpass (maps.mail.ru), at: geofabrik, ch: geofabrik')
+        self.assertEqual(stand.berechnen(ziel, heute=datetime.date(2026, 11, 20))['quelle'],
+                         'de: overpass (maps.mail.ru), at: geofabrik, ch: geofabrik')
+        with open(quellen, 'w', encoding='utf-8') as d:
+            json.dump({'de': 'geofabrik', 'at': 'geofabrik', 'ch': 'geofabrik'}, d)
+        self.assertEqual(stand.quelle_aus(quellen), 'geofabrik')
+        self.assertIsNone(stand.quelle_aus(quellen + '.fehlt'))
 
 
 class Stand(unittest.TestCase):
@@ -750,6 +1016,27 @@ class Workflow(unittest.TestCase):
         self.assertLess(probe, bauen.index('actions/checkout'))
         self.assertLess(probe, bauen.index('hole_orte.py'))
         self.assertIn('exit 1', bauen[probe:bauen.index('actions/checkout')])
+
+    def test_gescheiterter_abruf_veroeffentlicht_nichts(self):
+        # Seit dem 20.11.2026 festgehalten: Erst holen, dann prüfen, dann das
+        # Artefakt für Pages; kein Schritt läuft trotz Fehler weiter, und nur
+        # ein grüner Job `bauen` führt zur Veröffentlichung.
+        bauen = self.job('bauen')
+        self.assertLess(bauen.index('hole_orte.py ausgabe'), bauen.index('pruefe_orte.py ausgabe'))
+        self.assertLess(bauen.index('pruefe_orte.py ausgabe'), bauen.index('actions/upload-pages-artifact'))
+        self.assertNotIn('continue-on-error', self.text)
+        self.assertNotIn('always()', self.text)
+        self.assertNotIn('|| true', self.text)
+        veroeffentlichen = self.job('veroeffentlichen')
+        self.assertIn('needs: bauen', veroeffentlichen)
+        self.assertNotIn('if:', veroeffentlichen)
+        self.assertIn('actions/deploy-pages', veroeffentlichen)
+        self.assertNotIn('deploy-pages', bauen)
+
+    def test_zeitgrenze_und_quellen_datei(self):
+        bauen = self.job('bauen')
+        self.assertIn('\n    timeout-minutes: 240\n', bauen)
+        self.assertEqual(bauen.count('ORTE_QUELLEN_DATEI: ${{ runner.temp }}/quellen.json'), 2)
 
     def test_melden_bei_fehler_nur_mit_issues_write(self):
         melden = self.job('melden')

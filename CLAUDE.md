@@ -21,8 +21,14 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
   Push `git pull`). Rote Probe des Wächters: `-f fehlerprobe=true`, dann das
   Issue mit dem Label `lauf-gescheitert` prüfen und schließen (README,
   „Wächter“).
-- Hauptquelle ist der Geofabrik-Auszug; Overpass nur von Hand
-  (`ORTE_QUELLE=overpass`), ohne Rückfall.
+- Hauptquelle ist der Geofabrik-Auszug (fünf Versuche mit wachsender Pause,
+  höchstens 30 Minuten je Land). Kommt er nicht, fällt das Land auf Overpass
+  zurück (seit dem 20.11.2026: zwei öffentliche Server nacheinander, nie
+  `overpass-api.de`); scheitert auch das, ist der Lauf rot und nichts wird
+  veröffentlicht. Von Hand mit `ORTE_QUELLE=overpass` läuft nur Overpass,
+  ohne Rückfall auf den Auszug. README, „Wiederholung und Rückfall“. Vor
+  einem neuen Server dessen Nutzungsregeln lesen (`robots.txt`, OSM-Wiki),
+  bevor ihn irgendein Abruf trifft.
 - Ändert sich das Format der Dateien (Felder, Arten `k`), muss die App es
   lesen können: unbekannte Arten übergeht sie, fehlende Pflichtfelder machen
   die Datei für sie kaputt; die App verwirft außerdem neue Dateien mit weniger

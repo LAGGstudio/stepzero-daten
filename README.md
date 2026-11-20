@@ -177,12 +177,15 @@ Geofabrik (`download.geofabrik.de/europe/germany`, `austria`, `switzerland`,
 `.osm.pbf`) mit pyosmium (`tools/geofabrik.py`; im Workflow seit dem
 12.11.2026 `osmium==4.3.*`, die Version des letzten grünen Laufs 42780352071
 war 4.3.2). Seit dem 12.11.2026 muss der Download so lang sein wie
-Content-Length und zur `.md5` passen, sonst gilt der Versuch als gescheitert;
-bis zu drei Versuche mit 120 s Pause (auch bei 503). Geofabrik leitet
-`-latest.osm.pbf` per 307 weiter, AT und CH auf die Datei mit Datum
-(`switzerland-261111.osm.pbf`), DE auf den Spiegel der GWDG; am 12.11.2026 gab
-`germany-latest.osm.pbf.md5` bei Geofabrik 404, die Spiegel und die Dateien mit
-Datum haben eine `.md5`. Darum gilt zuerst die `.md5` neben der Datei, die
+Content-Length und zur `.md5` passen, sonst gilt der Versuch als gescheitert
+(auch bei 503; Versuche und Pausen unter „Wiederholung und Rückfall“).
+Geofabrik leitet `-latest.osm.pbf` per 307 weiter, AT und CH auf die Datei mit
+Datum (`switzerland-261111.osm.pbf`), DE auf den Spiegel der GWDG; am
+12.11.2026 gab `germany-latest.osm.pbf.md5` bei Geofabrik 404, die Spiegel und
+die Dateien mit Datum haben eine `.md5`. Seit dem 20.11.2026 liegen die Dateien
+bei Geofabrik unter `europe/<land>/<land>-…`; die alte Adresse leitet per 301
+dorthin (am selben Tag gegen 11:10 UTC für einige Minuten in einer Schleife,
+jede Weiterleitung hängte `/<land>` an, und Dateien mit Datum kamen als 502). Darum gilt zuerst die `.md5` neben der Datei, die
 wirklich kam, sonst die neben der `-latest`-Adresse. Fehlt der Zeitstempel im
 Auszug, bricht der Lauf ab (bis zum 12.11.2026 setzte er das heutige Datum ein).
 Weiter wie bisher:
@@ -192,17 +195,55 @@ Zeitstempel des Auszugs. Das OSM-Wiki empfiehlt Auszüge plus osmium
 ausdrücklich, wenn man viele Daten braucht. Die Auszüge folgen den Grenzen mit
 einem kleinen Saum; die Prüfung fängt nur grobe Ausreißer.
 
-### Overpass nur von Hand
+### Wiederholung und Rückfall
 
-Overpass bleibt als Code für einen Handstart: `ORTE_QUELLE=overpass python3
-tools/hole_orte.py` bzw. im Workflow „Run workflow“ mit Quelle `overpass`.
-Dann gibt es keinen Rückfall auf den Auszug: Scheitert die Abfrage, scheitert
-der Lauf und nichts wird veröffentlicht. Server `overpass.private.coffee`
-(änderbar über `OVERPASS_URL`), User-Agent
-`StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit 180 s, eine
-Wiederholung nach 60 s, 30 s Pause zwischen den Ländern; eine Antwort mit
-Fehlerhinweis, ohne Elemente oder mit einem Datenstand älter als 7 Tage gilt
-als gescheitert. Am 9.11.2026 war Overpass in allen drei Läufen überlastet
+Der zeitgesteuerte Lauf vom 16.11.2026 (43860656823, der erste auf
+`ubuntu-24.04`; der Runner stand bei AWS in us-east-1, alle grünen Läufe davor
+bei Azure) scheiterte im Schritt „Orte holen“ schon beim Auszug für DE:
+dreimal in vier Minuten `<urlopen error [Errno 101] Network is unreachable>`,
+jedes Mal sofort. Welche Adresse nicht erreichbar war, steht nicht im
+Protokoll: Python meldet von allen Adressen eines Hosts nur den Fehler der
+letzten. Seit dem 20.11.2026 deshalb:
+
+- **Auszug:** bis zu fünf Versuche mit wachsender Pause (60, 120, 240, 480 s),
+  zusammen höchstens 30 Minuten je Land (`PAUSEN`, `ZEITGRENZE` in
+  `tools/geofabrik.py`). Kam gar keine Verbindung zustande, schreibt
+  `netz_diagnose` nach dem letzten Versuch je Adresse des Hosts (IPv4, IPv6),
+  was der Verbindungsaufbau ergab.
+- **Rückfall je Land:** Kommt der Auszug nicht, fragt `tools/hole_orte.py` für
+  dieses Land Overpass, zwei öffentliche Server nacheinander, nie gleichzeitig:
+  `overpass.private.coffee`, dann die Instanz von VK Maps
+  (`maps.mail.ru/osm/tools/overpass`; das OSM-Wiki am 20.11.2026: „Feel free
+  to use our services in any project. There are currently no requests
+  limitations“). Je Server bis zu drei Versuche mit 30 und 90 s Pause (das
+  Wiki bittet nach 429 oder 406 um mindestens 30 s), zusammen höchstens 20
+  Minuten je Land; eine unbrauchbare Antwort führt ohne zweiten Versuch zum
+  nächsten Server. `overpass-api.de` bleibt draußen (siehe unten).
+- **Scheitert auch das,** endet `hole_orte.py` mit Exit-Code 1: Die Schritte
+  danach (Prüfung, Artefakt) laufen nicht, der Job `veroeffentlichen` wird
+  übersprungen, online bleibt die alte Fassung, und `melden` legt das Issue
+  an. Halbes gibt es nicht: Dateien einzelner Länder, die schon da waren,
+  bleiben auf dem Runner. Der Job `bauen` hat dazu eine Obergrenze von 240
+  Minuten.
+- **Woher ein Land kam,** steht im Protokoll („Quelle geofabrik“ bzw.
+  „Quelle overpass (…)“) und in `stand.json` unter `quelle` (kamen alle vom
+  Auszug: `geofabrik`, sonst je Land).
+
+Ein zweiter Server für Auszüge wäre der nähere Rückfall gewesen;
+`download.openstreetmap.fr` schließt das selbst aus (`robots.txt`: „Disallow:
+/“, am 20.11.2026 gelesen), und der Spiegel der GWDG führt nur DE.
+
+### Overpass: Rückfall und Handstart
+
+Overpass ist der Rückfall (oben) und bleibt für einen Handstart:
+`ORTE_QUELLE=overpass python3 tools/hole_orte.py` bzw. im Workflow „Run
+workflow“ mit Quelle `overpass`. Beim Handstart gibt es keinen Rückfall auf
+den Auszug: Scheitert die Abfrage an beiden Servern, scheitert der Lauf und
+nichts wird veröffentlicht. Server wie oben (ersetzbar über `OVERPASS_URL`,
+mehrere durch Leerzeichen getrennt), User-Agent
+`StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit der Abfrage 180 s,
+30 s Pause zwischen den Ländern; eine Antwort mit Fehlerhinweis, ohne
+Elemente oder mit einem Datenstand älter als 7 Tage gilt als unbrauchbar. Am 9.11.2026 war Overpass in allen drei Läufen überlastet
 oder lieferte veraltete Daten (private.coffee: Stand Juni, für DE leer), darum
 ist der Auszug die Hauptquelle.
 
