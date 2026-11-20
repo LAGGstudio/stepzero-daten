@@ -171,8 +171,18 @@ class OverpassAntwort(unittest.TestCase):
             veraltet = json.dumps(self.roh(basis='2026-06-01T00:00:00Z')).encode()
             hole_orte.urllib.request.urlopen = lambda *a, **k: Antwort(veraltet)
             os.environ['ORTE_QUELLE'] = 'overpass'
-            with self.assertRaises(hole_orte.Unbrauchbar):
-                hole_orte.holen('de')
+            # Die Meldungen je Server nicht ins Protokoll des Laufs: Am
+            # 20.11.2026 stand dort mitten in einem grünen Lauf „172 Tage alt“.
+            alt_stderr, sys.stderr = sys.stderr, io.StringIO()
+            try:
+                with self.assertRaises(hole_orte.Unbrauchbar):
+                    hole_orte.holen('de')
+                meldungen = sys.stderr.getvalue().splitlines()
+            finally:
+                sys.stderr = alt_stderr
+            self.assertEqual(len(meldungen), 2, 'beide Server gefragt, beide unbrauchbar')
+            self.assertTrue(meldungen[0].startswith('overpass.private.coffee: de: Overpass-Datenstand 2026-06-01 ist '))
+            self.assertTrue(meldungen[1].startswith('maps.mail.ru: de: Overpass-Datenstand 2026-06-01 ist '))
         finally:
             os.environ.pop('ORTE_QUELLE', None)
             geofabrik.holen = alt_g

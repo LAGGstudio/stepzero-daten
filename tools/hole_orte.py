@@ -137,7 +137,8 @@ def overpass_holen(land, endpunkte=None, pausen=OVERPASS_PAUSEN, grenze=OVERPASS
                 return roh
             except Unbrauchbar as fehler:
                 letzter = fehler
-                print('%s: %s: %s' % (land, server, fehler), file=sys.stderr)
+                # Die Meldung nennt das Land schon selbst.
+                print('%s: %s' % (server, fehler), file=sys.stderr)
                 break
             except Exception as fehler:  # noqa: BLE001
                 letzter = fehler
