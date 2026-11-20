@@ -4,8 +4,8 @@ ausgabe/<land>.json (kompakt), doppelte Einträge zusammengeführt.
 Hauptquelle ist seit dem 10.11.2026 der tägliche Geofabrik-Auszug
 (tools/geofabrik.py, braucht pyosmium: `pip install osmium`). Kommt er nach
 allen Versuchen nicht (am 16.11.2026: dreimal „Network is unreachable“),
-fällt das Land seit dem 20.11.2026 auf Overpass zurück, über zwei öffentliche
-Server nacheinander. Mit ORTE_QUELLE=overpass läuft nur Overpass (Handstart,
+fällt das Land seit dem 20.11.2026 auf Overpass zurück (seit Runde 52
+nur overpass.private.coffee). Mit ORTE_QUELLE=overpass läuft nur Overpass (Handstart,
 nur Standardbibliothek, ohne Rückfall auf den Auszug). Scheitert auch das,
 endet der Lauf mit Exit-Code 1, und nichts wird veröffentlicht.
 
@@ -22,14 +22,12 @@ from orte import ART_NAMEN, ARTEN, LAENDER, LIZENZ, doppelte_zusammenfuehren, ei
 # Hauptinstanz overpass-api.de war am 9.11.2026 überlastet (502), und das Wiki
 # bittet dort regelmäßige und kommerzielle Nutzung, auszuweichen (README).
 #
-# Zweiter Server seit dem 20.11.2026: die Instanz von VK Maps, laut demselben
-# Wiki (am 20.11.2026 gelesen) „Feel free to use our services in any project.
-# There are currently no requests limitations“. Beide nacheinander, nie
-# gleichzeitig; OVERPASS_URL (eine oder mehrere Adressen, durch Leerzeichen
-# getrennt) ersetzt die Liste.
+# Am 20.11.2026 stand dahinter kurz als zweiter Server die Instanz von VK
+# Maps (maps.mail.ru); Marcel hat sie herausgenommen (Runde 52, Block D).
+# OVERPASS_URL (eine oder mehrere Adressen, durch Leerzeichen getrennt,
+# nacheinander, nie gleichzeitig) ersetzt die Liste für einen Handstart.
 ENDPUNKTE = tuple((os.environ.get('OVERPASS_URL') or '').split()) or (
     'https://overpass.private.coffee/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 )
 USER_AGENT = 'StepZero-Daten/1.0 (info.laggstudio@gmail.com)'
 ZEITLIMIT = 180

@@ -6,6 +6,9 @@ on:
     # unter Last Läufe verzögert oder verwirft (seit dem 12.11.2026, vorher
     # 03:00).
     - cron: '23 3 * * 1'
+    # dienstags 03:23 UTC, 24 Stunden später (seit Runde 52): arbeitet nur,
+    # wenn ein veröffentlichter Stand älter als 7 Tage ist (Job vorab).
+    - cron: '23 3 * * 2'
   workflow_dispatch:
     inputs:
       quelle:
@@ -29,7 +32,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Der Dienstagslauf fragt erst, ob es etwas nachzuholen gibt; jeder andere
+  # Lauf (Montag, von Hand) arbeitet immer. Ohne Bedarf werden alle weiteren
+  # Jobs übersprungen, der Lauf ist grün.
+  vorab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      noetig: ${{ steps.pruefen.outputs.noetig }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stand der veröffentlichten Dateien
+        id: pruefen
+        env:
+          PLAN: ${{ github.event.schedule }}
+        run: |
+          if [ "$PLAN" = '23 3 * * 2' ]; then
+            python3 tools/nachholen.py "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "noetig=true" >> "$GITHUB_OUTPUT"
+          fi
+
   bauen:
+    needs: vorab
+    if: ${{ needs.vorab.outputs.noetig == 'true' }}
     runs-on: ubuntu-24.04
     # Obergrenze für den ganzen Job (seit dem 20.11.2026): je Land höchstens
     # 30 min für den Auszug und 20 min für den Rückfall auf Overpass, dazu die
@@ -113,7 +141,7 @@ jobs:
   # Scheitert irgendein Job: ein Issue mit dem Label lauf-gescheitert, oder
   # ein Kommentar, wenn schon eins offen ist.
   melden:
-    needs: [bauen, veroeffentlichen, stand]
+    needs: [vorab, bauen, veroeffentlichen, stand]
     if: ${{ failure() }}
     runs-on: ubuntu-24.04
     permissions:

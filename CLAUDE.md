@@ -23,8 +23,8 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
   „Wächter“).
 - Hauptquelle ist der Geofabrik-Auszug (fünf Versuche mit wachsender Pause,
   höchstens 30 Minuten je Land). Kommt er nicht, fällt das Land auf Overpass
-  zurück (seit dem 20.11.2026: zwei öffentliche Server nacheinander, nie
-  `overpass-api.de`); scheitert auch das, ist der Lauf rot und nichts wird
+  zurück (seit Runde 52 nur `overpass.private.coffee`, nie `overpass-api.de`,
+  nicht mehr VK Maps); scheitert auch das, ist der Lauf rot und nichts wird
   veröffentlicht. Von Hand mit `ORTE_QUELLE=overpass` läuft nur Overpass,
   ohne Rückfall auf den Auszug. README, „Wiederholung und Rückfall“. Vor
   einem neuen Server dessen Nutzungsregeln lesen (`robots.txt`, OSM-Wiki),

@@ -167,7 +167,7 @@ Pipeline immer.
 
 Lokal: `python3 -m unittest discover -s tests`, `python3 tools/hole_orte.py`,
 `python3 tools/pruefe_orte.py ausgabe [vorher]`, `python3 tools/seite_bauen.py`,
-`python3 tools/stand.py ausgabe`.
+`python3 tools/stand.py ausgabe`, `python3 tools/nachholen.py BASIS-URL`.
 Bis auf pyosmium für den Auszug nur Python-Standardbibliothek.
 
 ### Hauptquelle: Geofabrik-Auszug
@@ -211,14 +211,13 @@ letzten. Seit dem 20.11.2026 deshalb:
   `netz_diagnose` nach dem letzten Versuch je Adresse des Hosts (IPv4, IPv6),
   was der Verbindungsaufbau ergab.
 - **Rückfall je Land:** Kommt der Auszug nicht, fragt `tools/hole_orte.py` für
-  dieses Land Overpass, zwei öffentliche Server nacheinander, nie gleichzeitig:
-  `overpass.private.coffee`, dann die Instanz von VK Maps
-  (`maps.mail.ru/osm/tools/overpass`; das OSM-Wiki am 20.11.2026: „Feel free
-  to use our services in any project. There are currently no requests
-  limitations“). Je Server bis zu drei Versuche mit 30 und 90 s Pause (das
-  Wiki bittet nach 429 oder 406 um mindestens 30 s), zusammen höchstens 20
-  Minuten je Land; eine unbrauchbare Antwort führt ohne zweiten Versuch zum
-  nächsten Server. `overpass-api.de` bleibt draußen (siehe unten).
+  dieses Land Overpass, seit Runde 52 nur `overpass.private.coffee` (am
+  20.11.2026 stand kurz die Instanz von VK Maps, `maps.mail.ru`, als zweiter
+  Server dahinter; Marcel hat sie herausgenommen). Bis zu drei Versuche mit 30
+  und 90 s Pause (das Wiki bittet nach 429 oder 406 um mindestens 30 s),
+  zusammen höchstens 20 Minuten je Land; eine unbrauchbare Antwort gilt ohne
+  zweiten Versuch als gescheitert. `overpass-api.de` bleibt draußen (siehe
+  unten).
 - **Scheitert auch das,** endet `hole_orte.py` mit Exit-Code 1: Die Schritte
   danach (Prüfung, Artefakt) laufen nicht, der Job `veroeffentlichen` wird
   übersprungen, online bleibt die alte Fassung, und `melden` legt das Issue
@@ -229,6 +228,14 @@ letzten. Seit dem 20.11.2026 deshalb:
   „Quelle overpass (…)“) und in `stand.json` unter `quelle` (kamen alle vom
   Auszug: `geofabrik`, sonst je Land).
 
+- **Zweiter Lauf dienstags** (seit Runde 52): 24 Stunden nach dem Montagslauf,
+  03:23 UTC. Der Job `vorab` liest das Feld `stand` der veröffentlichten
+  Dateien (`tools/nachholen.py`); ist keiner älter als 7 Tage, werden alle
+  weiteren Jobs übersprungen und der Lauf ist grün, ohne Abruf. Ist einer
+  älter oder nicht lesbar (etwa weil der Montagslauf scheiterte), arbeitet
+  der Lauf wie montags. Montags und von Hand arbeitet `vorab` nicht, dort gilt
+  immer `noetig=true`.
+
 Ein zweiter Server für Auszüge wäre der nähere Rückfall gewesen;
 `download.openstreetmap.fr` schließt das selbst aus (`robots.txt`: „Disallow:
 /“, am 20.11.2026 gelesen), und der Spiegel der GWDG führt nur DE.
@@ -238,9 +245,9 @@ Ein zweiter Server für Auszüge wäre der nähere Rückfall gewesen;
 Overpass ist der Rückfall (oben) und bleibt für einen Handstart:
 `ORTE_QUELLE=overpass python3 tools/hole_orte.py` bzw. im Workflow „Run
 workflow“ mit Quelle `overpass`. Beim Handstart gibt es keinen Rückfall auf
-den Auszug: Scheitert die Abfrage an beiden Servern, scheitert der Lauf und
-nichts wird veröffentlicht. Server wie oben (ersetzbar über `OVERPASS_URL`,
-mehrere durch Leerzeichen getrennt), User-Agent
+den Auszug: Scheitert die Abfrage, scheitert der Lauf und nichts wird
+veröffentlicht. Server wie oben (ersetzbar über `OVERPASS_URL`, mehrere durch
+Leerzeichen getrennt), User-Agent
 `StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit der Abfrage 180 s,
 30 s Pause zwischen den Ländern; eine Antwort mit Fehlerhinweis, ohne
 Elemente oder mit einem Datenstand älter als 7 Tage gilt als unbrauchbar. Am 9.11.2026 war Overpass in allen drei Läufen überlastet
