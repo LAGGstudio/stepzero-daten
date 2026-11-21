@@ -791,10 +791,11 @@ class Download(_MitGeofabrik, unittest.TestCase):
         with open(self.ziel, 'rb') as d:
             self.assertEqual(d.read(), self.INHALT)
 
-    def test_4xx_ohne_wiederholung(self):
-        # Runde 54: Was Geofabrik ablehnt (403, 404, 410, 429), wird nicht
-        # wiederholt; 408 ist ein Zeitfehler und darf es.
-        for status in (403, 404, 410, 429):
+    def test_gesperrt_oder_zu_viele_ohne_wiederholung(self):
+        # Runde 54: Sperrt oder bremst Geofabrik (401, 403, 429), kein
+        # weiterer Versuch.
+        self.assertEqual(self.geofabrik.ABLEHNUNG, (401, 403, 429))
+        for status in self.geofabrik.ABLEHNUNG:
             _Geofabrik.anfragen = []
             _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(status, {}, b'nein')]
             with self.assertRaises(self.geofabrik.Gescheitert) as ctx:
@@ -802,10 +803,17 @@ class Download(_MitGeofabrik, unittest.TestCase):
             self.assertEqual(len(self.pbf_abrufe()), 1, status)
             self.assertIn('nach 1 Versuchen', str(ctx.exception))
             self.assertIn('Geofabrik lehnt ab (%d), kein weiterer Versuch' % status, sys.stderr.getvalue())
-        _Geofabrik.anfragen = []
-        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(408, {}, b'zu langsam'), (200, {}, self.INHALT)]
-        self.laden()
-        self.assertEqual(len(self.pbf_abrufe()), 2)
+            # Die Adresse nach der Weiterleitung steht im Protokoll.
+            self.assertIn('(%seurope/switzerland-261111.osm.pbf)' % self.basis, sys.stderr.getvalue())
+
+    def test_404_und_andere_werden_wiederholt(self):
+        # Wie am 21.11.2026 um 01:06 UTC (Lauf 44848127410): DE gab einmal
+        # 404; bis zur Korrektur brach das den Lauf sofort ab.
+        for status in (404, 408, 410, 500, 502, 503):
+            _Geofabrik.anfragen = []
+            _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(status, {}, b'x'), (200, {}, self.INHALT)]
+            self.laden()
+            self.assertEqual(len(self.pbf_abrufe()), 2, status)
 
     def test_zu_wenig_platz_ohne_wiederholung_und_ohne_datei(self):
         alt = self.geofabrik.freier_platz

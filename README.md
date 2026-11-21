@@ -270,11 +270,15 @@ setzt das Repo sie um (Runde 54):
 3. „Monitor what your script is doing or build in appropriate catches so that
    you don't end up downloading the same file 1000 times just because your
    disk is full“: **umgesetzt** in `tools/geofabrik.py`:
-   - Was eine Wiederholung nicht heilt, bekommt keine (`Endgueltig`): eine
-     Ablehnung von Geofabrik (4xx außer 408, auch 429 „Too Many Requests“),
-     zu wenig Platz auf dem Runner für die angekündigte Länge plus 64 MB
-     (`RESERVE`, geprüft vor dem ersten Byte), ein gescheitertes Schreiben
-     (volle Platte).
+   - Was eine Wiederholung nicht heilt, bekommt keine: eine Sperre oder Bremse
+     von Geofabrik (401, 403, 429 „Too Many Requests“, `ABLEHNUNG`), zu wenig
+     Platz auf dem Runner für die angekündigte Länge plus 64 MB (`RESERVE`,
+     geprüft vor dem ersten Byte), ein gescheitertes Schreiben (volle Platte;
+     beides `Endgueltig`). Ein 404 wird wiederholt: Im ersten Lauf mit dieser
+     Regel (21.11.2026, 01:06 UTC, Lauf 44848127410) gab der Auszug für DE
+     einmal 404, und die erste Fassung, die alle 4xx sofort aufgab, ließ den
+     Lauf damit scheitern; ein 404 überträgt keine Datei. Jede gescheiterte
+     Antwort nennt seitdem die Adresse nach der Weiterleitung.
    - Je Land und Lauf höchstens zweimal die Länge des Auszugs
      (`HOECHSTENS_DOWNLOADS`); eine falsche Prüfsumme kostet so höchstens zwei
      ganze Downloads statt fünf. Abgebrochene Downloads zählen mit ihren Byte.

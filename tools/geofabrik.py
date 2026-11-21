@@ -25,8 +25,8 @@ der Lauf ist rot (seit Runde 54 ohne Rückfall).
 Seit Runde 54 nach Geofabriks „Download responsibly!“ (10.09.2025), Punkt 3
 („build in appropriate catches so that you don't end up downloading the same
 file 1000 times just because your disk is full“): Was eine Wiederholung nicht
-heilt, bekommt keine (`Endgueltig`: Geofabrik lehnt mit 4xx ab, auch 429;
-auf dem Runner ist zu wenig Platz für die angekündigte Länge; das Schreiben
+heilt, bekommt keine (Geofabrik sperrt oder bremst, ABLEHNUNG; `Endgueltig`:
+auf dem Runner ist zu wenig Platz für die angekündigte Länge, das Schreiben
 scheitert). Je Land und Lauf höchstens HOECHSTENS_DOWNLOADS-mal die Länge des
 Auszugs, danach kein weiterer Versuch (eine falsche Prüfsumme kostet so
 höchstens zwei ganze Downloads statt fünf). Jeder Versuch schreibt ins
@@ -56,6 +56,12 @@ ZEITGRENZE = 30 * 60
 # Je Land und Lauf höchstens so viele ganze Längen des Auszugs laden (Runde
 # 54, Geofabriks Punkt 3): Danach beginnt kein weiterer Versuch.
 HOECHSTENS_DOWNLOADS = 2
+# Antworten, die eine Wiederholung nicht heilt: Wir sind gesperrt oder zu
+# viele (401, 403, 429 „Too Many Requests“). Ein 404 dagegen wird wiederholt:
+# Am 21.11.2026 um 01:06 UTC (Lauf 44848127410) gab der Auszug für DE 404,
+# vermutlich weil `-latest` schon auf eine Datei zeigte, die noch nicht da
+# war; ein 404 überträgt keine Datei, die Pausen kosten nur Zeit.
+ABLEHNUNG = (401, 403, 429)
 # So viel Platz bleibt auf dem Runner frei, über die angekündigte Länge hinaus.
 RESERVE = 64 * 1024 * 1024
 
@@ -65,9 +71,9 @@ class Unvollstaendig(Exception):
 
 
 class Endgueltig(Exception):
-    """Ein Versuch, den eine Wiederholung nicht heilt (Runde 54): Geofabrik
-    lehnt ab (4xx außer 408, auch 429), auf dem Runner fehlt Platz, oder das
-    Schreiben scheitert. Danach kein weiterer Versuch."""
+    """Ein Versuch, den eine Wiederholung nicht heilt (Runde 54): auf dem
+    Runner fehlt Platz, oder das Schreiben scheitert. Danach kein weiterer
+    Versuch (ebenso nach einer Antwort aus ABLEHNUNG)."""
 
 
 def freier_platz(ordner):
@@ -194,8 +200,9 @@ def laden(land, ziel, quelle=QUELLE, pausen=PAUSEN, grenze=ZEITGRENZE, schlafen=
             return ende
         except urllib.error.HTTPError as fehler:
             letzter = fehler
-            print('%s: Versuch %d von %d gescheitert: %s' % (land, versuch, versuche, fehler), file=sys.stderr)
-            if 400 <= fehler.code < 500 and fehler.code != 408:
+            print('%s: Versuch %d von %d gescheitert: %s (%s)'
+                  % (land, versuch, versuche, fehler, fehler.geturl() or fehler.filename), file=sys.stderr)
+            if fehler.code in ABLEHNUNG:
                 print('%s: Geofabrik lehnt ab (%d), kein weiterer Versuch' % (land, fehler.code), file=sys.stderr)
                 break
         except Endgueltig as fehler:

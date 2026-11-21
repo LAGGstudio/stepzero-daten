@@ -29,8 +29,8 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
   (ohne Rückfall)“. Vor einem neuen Server dessen Nutzungsregeln lesen
   (`robots.txt`, OSM-Wiki), bevor ihn irgendein Abruf trifft.
 - Sorgsam laden (Geofabrik, „Download responsibly!“, README): Was eine
-  Wiederholung nicht heilt (4xx, zu wenig Platz, Schreibfehler), wird nicht
-  wiederholt; je Land und Lauf höchstens zweimal die Länge des Auszugs. Jeder
+  Wiederholung nicht heilt (401, 403, 429, zu wenig Platz, Schreibfehler),
+  wird nicht wiederholt (ein 404 schon, am 21.11.2026 war er vorübergehend); je Land und Lauf höchstens zweimal die Länge des Auszugs. Jeder
   Abruf trägt `USER_AGENT` aus `tools/orte.py` (Projekt, Repo, Kontakt); kein
   Abruf ohne ihn. Den `.osm.pbf` lädt nur der Lauf auf GitHub, nie eine
   Sitzung von Claude (Geofabriks `robots.txt` sperrt `*.osm.pbf` für alle
