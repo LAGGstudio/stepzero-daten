@@ -123,6 +123,151 @@ class Rueckfall(unittest.TestCase):
         self.assertNotIn('quelle:', workflow.split('workflow_dispatch:', 1)[1].split('\npermissions:', 1)[0])
 
 
+class Maerkte(unittest.TestCase):
+    """Runde 54, Block B: amenity=marketplace als Art `markt`, nur mit Name
+    oder Öffnungszeiten; lesbare Öffnungszeiten deutsch und englisch."""
+
+    def test_art_und_aufnahme(self):
+        import geofabrik
+        self.assertEqual(art({'amenity': 'marketplace'}), 'markt')
+        self.assertIn(('amenity', 'marketplace'), geofabrik.ETIKETTEN)
+        self.assertEqual(orte.ART_NAMEN[-1], 'markt', 'als letzte Art, die anderen gewinnen vorher')
+        self.assertEqual(orte.STANDARDNAMEN['markt'], ('Markt', 'Market'))
+        # Ohne Name und ohne Öffnungszeiten: weglassen.
+        self.assertIsNone(eintrag(knoten(1, {'amenity': 'marketplace'})))
+        self.assertIsNone(eintrag(knoten(1, {'amenity': 'marketplace', 'name': ''})))
+        # Nur Name: aufgenommen, ohne Zeiten.
+        self.assertEqual(eintrag(knoten(2, {'amenity': 'marketplace', 'name': 'Wochenmarkt Ehrenfeld'})),
+                         {'id': 'n2', 'k': 'markt', 'lat': 50.93759, 'lon': 6.96016, 'name': 'Wochenmarkt Ehrenfeld'})
+        # Nur Öffnungszeiten, lesbar: roh und als Text.
+        e = eintrag(knoten(3, {'amenity': 'marketplace', 'opening_hours': 'We,Sa 08:00-13:00'}))
+        self.assertEqual(e['oeffnung'], 'We,Sa 08:00-13:00')
+        self.assertEqual(e['zeiten'], {'de': 'Mi, Sa 8–13 Uhr', 'en': 'Wed, Sat 8 a.m.–1 p.m.'})
+        self.assertNotIn('name', e)
+        # Nicht lesbar: roh ja, Text nein.
+        e = eintrag(knoten(4, {'amenity': 'marketplace', 'opening_hours': 'Apr-Oct Sa 08:00-13:00'}))
+        self.assertEqual(e['oeffnung'], 'Apr-Oct Sa 08:00-13:00')
+        self.assertNotIn('zeiten', e)
+        # Ausschlüsse gelten auch hier; andere Arten bekommen keinen Text.
+        self.assertIsNone(eintrag(knoten(5, {'amenity': 'marketplace', 'name': 'X', 'access': 'private'})))
+        self.assertNotIn('zeiten', eintrag(knoten(6, {'amenity': 'public_bookcase', 'opening_hours': 'Sa 08:00-13:00'})))
+
+    def test_flaeche_als_mitte(self):
+        w = eintrag({'type': 'way', 'id': 7, 'center': {'lat': 50.123456, 'lon': 6.987654},
+                     'tags': {'amenity': 'marketplace', 'name': 'Marktplatz'}})
+        self.assertEqual((w['id'], w['lat'], w['lon']), ('w7', 50.12346, 6.98765))
+
+    def test_doppelte_maerkte_unter_200_m(self):
+        # Fläche und Punkt desselben Wochenmarkts liegen oft weit auseinander;
+        # „Wochenmarkt“ wäre sonst ein Straßenwort (30 m).
+        self.assertTrue(allerweltsname('Wochenmarkt'))
+        nah = [ort('n1', 'Wochenmarkt', k='markt'), ort('w2', 'Wochenmarkt', k='markt', lat=50.9 + 0.00135)]
+        self.assertAlmostEqual(abstand_m(nah[0], nah[1]), 150, delta=1)
+        self.assertEqual([e['id'] for e in doppelte_zusammenfuehren(nah)[0]], ['n1'])
+        weit = [ort('n1', 'Wochenmarkt', k='markt'), ort('w2', 'Wochenmarkt', k='markt', lat=50.9 + 0.0023)]
+        self.assertGreater(abstand_m(weit[0], weit[1]), 250)
+        self.assertEqual([e['id'] for e in doppelte_zusammenfuehren(weit)[0]], ['n1', 'w2'])
+        # Andere Arten wie bisher: „Wochenmarkt“-Brunnen 150 m auseinander bleiben zwei.
+        brunnen = [dict(e, k='trinkbrunnen') for e in nah]
+        self.assertEqual(len(doppelte_zusammenfuehren(brunnen)[0]), 2)
+
+    def test_zaehlen_fuer_das_protokoll(self):
+        roh = {'osm3s': {'timestamp_osm_base': '2026-11-20T00:00:00Z'}, 'elements': [
+            knoten(1, {'amenity': 'marketplace'}),
+            knoten(2, {'amenity': 'marketplace', 'name': 'Markt A'}, lat=50.0),
+            knoten(3, {'amenity': 'marketplace', 'opening_hours': 'Sa 08:00-12:00'}, lat=51.0),
+            knoten(4, {'amenity': 'marketplace', 'name': 'Markt B', 'opening_hours': 'PH off'}, lat=52.0),
+            knoten(5, {'amenity': 'drinking_water'})]}
+        daten, _ = hole_orte.umwandeln(roh, 'de')
+        z = hole_orte.maerkte_zaehlen(roh, daten)
+        self.assertEqual({k: v for k, v in z.items() if k != 'nicht_lesbar'},
+                         {'gesamt': 4, 'mit_name': 2, 'mit_oeffnung': 2, 'aufgenommen': 3,
+                          'aufgenommen_mit_oeffnung': 2, 'lesbar': 1})
+        self.assertEqual(z['nicht_lesbar'], [('PH off', 1)])
+        zeilen = hole_orte.maerkte_zeilen('de', z)
+        self.assertEqual(zeilen[0], 'de: Märkte im Auszug 4, mit Name 2, mit Öffnungszeiten 2; aufgenommen 3, '
+                                    'davon mit Öffnungszeiten 2, lesbar 1 (50 %)')
+        self.assertEqual(zeilen[1], 'de:   nicht lesbar    1× PH off')
+
+    def test_pruefung_der_zeiten(self):
+        def fehler(e):
+            daten = {'stand': HEUTE.isoformat(), 'lizenz': orte.LIZENZ,
+                     'eintraege': [e] + [ort('n%d' % i, k='garten') for i in range(10, 1010)]}
+            return pruefe_orte.schema_fehler('de', daten, heute=HEUTE)
+        gut = ort('n1', 'Markt', k='markt', oeffnung='Sa 08:00-12:00', zeiten={'de': 'Sa 8–12 Uhr', 'en': 'Sat'})
+        self.assertEqual(fehler(gut), [])
+        for schlecht in (dict(gut, zeiten={'de': 'Sa 8–12 Uhr'}),
+                         dict(gut, zeiten={'de': 'Sa 8–12 Uhr', 'en': ''}),
+                         dict(gut, zeiten='Sa 8–12 Uhr'),
+                         dict(gut, k='garten'),
+                         {k: v for k, v in gut.items() if k != 'oeffnung'}):
+            self.assertTrue(any('zeiten' in f for f in fehler(schlecht)), schlecht)
+
+    def test_uebersicht_kennt_jede_art(self):
+        import seite_bauen
+        self.assertEqual(set(seite_bauen.TITEL), set(orte.ART_NAMEN))
+        self.assertEqual(seite_bauen.TITEL['markt'], 'Märkte')
+
+
+class Oeffnungszeiten(unittest.TestCase):
+    """Runde 54, Block B, tools/oeffnungszeiten.py: feste Regeln, kein
+    Sprachmodell; was nicht sicher passt, bekommt keinen Text."""
+
+    def test_lesbare_muster(self):
+        from oeffnungszeiten import lesbar
+        for roh, de, en in (
+            ('We,Sa 08:00-13:00', 'Mi, Sa 8–13 Uhr', 'Wed, Sat 8 a.m.–1 p.m.'),
+            ('Mo-Fr 08:00-12:00,14:00-18:00', 'Mo–Fr 8–12, 14–18 Uhr', 'Mon–Fri 8 a.m.–12 p.m., 2 p.m.–6 p.m.'),
+            ('08:00-13:00', 'täglich 8–13 Uhr', 'daily 8 a.m.–1 p.m.'),
+            ('Tu,Fr 08:00-13:00; Sa 07:00-12:00', 'Di, Fr 8–13 Uhr; Sa 7–12 Uhr',
+             'Tue, Fri 8 a.m.–1 p.m.; Sat 7 a.m.–12 p.m.'),
+            ('Mo-Sa 07:30-12:00; Su off', 'Mo–Sa 7:30–12 Uhr', 'Mon–Sat 7:30 a.m.–12 p.m.'),
+            ('Th 14:00-18:30', 'Do 14–18:30 Uhr', 'Thu 2 p.m.–6:30 p.m.'),
+            ('Sa 12:00-13:00', 'Sa 12–13 Uhr', 'Sat 12 p.m.–1 p.m.'),
+            ('Fr 17:00-24:00', 'Fr 17–24 Uhr', 'Fri 5 p.m.–midnight'),
+            ('Su 00:00-01:00', 'So 0–1 Uhr', 'Sun 12 a.m.–1 a.m.'),
+            ('Mo - Fr 8:00 - 12:30', 'Mo–Fr 8–12:30 Uhr', 'Mon–Fri 8 a.m.–12:30 p.m.'),
+            ('Mo-We,Fr 09:00-12:00', 'Mo–Mi, Fr 9–12 Uhr', 'Mon–Wed, Fri 9 a.m.–12 p.m.'),
+            ('Fr-Mo 10:00-12:00', 'Fr–Mo 10–12 Uhr', 'Fri–Mon 10 a.m.–12 p.m.'),
+            ('Sa 08:00-13:00;', 'Sa 8–13 Uhr', 'Sat 8 a.m.–1 p.m.'),
+            ('  Sa   08:00-13:00 ', 'Sa 8–13 Uhr', 'Sat 8 a.m.–1 p.m.'),
+        ):
+            self.assertEqual(lesbar(roh), {'de': de, 'en': en}, roh)
+
+    def test_nicht_sicher_also_kein_text(self):
+        from oeffnungszeiten import lesbar
+        for roh in (
+            None, '', ' ', 'x' * 201,
+            'Apr-Oct Sa 08:00-13:00',          # Monate
+            'Sa 08:00-13:00; PH off',           # Feiertage
+            'Mo-Fr 08:00-18:00; SH off',        # Schulferien
+            'Sa[1] 08:00-14:00',                # n-ter Wochentag
+            '24/7',
+            'Sa 08:00+',                        # offenes Ende
+            'Sa sunrise-sunset',
+            'Sa 08:00-13:00 "bei Regen nicht"',
+            'Sa 08:00-12:00 || "nach Absprache"',
+            'Mo-Fr 08:00-12:00, Sa 09:00-12:00',  # Komma zwischen Regeln
+            'Fr 22:00-02:00',                   # über Mitternacht
+            'Sa 13:00-08:00',
+            'Sa 08:00-08:00',
+            'Sa 25:00-26:00',
+            'Sa 08:60-09:00',
+            'Sa 24:00-24:30',
+            'Mo-Fr 08:00-12:00; We 14:00-18:00',  # We in zwei Regeln
+            'Mo-Su 08:00-12:00; We off',        # „off“ widerspricht
+            'Su off',                           # nur geschlossen
+            'Mo,Mo 08:00-12:00',
+            'Sa 08:00-12:00,11:00-13:00',       # Spannen überlappen
+            'Saturday 08:00-13:00',
+            'Sa: 08:00-13:00',
+            'Sa 8-13',
+            'Sa 08:00-13:00;; Su 09:00-12:00',
+            'Sa 08:00-12:00 open',
+        ):
+            self.assertIsNone(lesbar(roh), roh)
+
+
 def ort(i, name=None, lat=50.9, lon=6.9, k='garten', **mehr):
     e = {'id': i, 'k': k, 'lat': lat, 'lon': lon}
     if name is not None:
@@ -230,12 +375,17 @@ class Doppelte(unittest.TestCase):
         # Die Standardnamen der App, deutsch und englisch, seit Runde 39 für
         # jede Art: auch zwei Trinkbrunnen namens „Refill-Station“ 31 m
         # auseinander bleiben zwei und ein Garten namens „Drinking fountain“.
+        # Seit Runde 54 acht Arten (dazu `markt`, „Markt“ / „Market“).
         alle = [(k, n) for k, namen in orte.STANDARDNAMEN.items() for n in namen]
-        self.assertEqual(len(alle), 14)
+        self.assertEqual(len(alle), 16)
         for k_name, name in alle:
             for k in orte.ART_NAMEN:
                 self.assertTrue(allerweltsname(name), name)
                 weit = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.WEIT_ALLGEMEIN)]
+                if k == 'markt':
+                    # Märkte: immer die Grenze der eigenen Namen (200 m).
+                    self.assertEqual(self.ids(weit), ['n1'], (k, name))
+                    weit = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.WEIT)]
                 self.assertEqual(self.ids(weit), ['n1', 'n2'], (k, name))
                 nah = [ort('n1', name, k=k), ort('n2', name, k=k, lat=self.NAH_ALLGEMEIN)]
                 self.assertEqual(self.ids(nah), ['n1'], (k, name))
@@ -504,7 +654,9 @@ class Rueckgang(unittest.TestCase):
         # Lauter kleine Arten, jede unter 20: die Summe fällt trotzdem auf.
         alt = {k: 19 for k in orte.ART_NAMEN}
         f = pruefe_orte.rueckgang_fehler('ch', {k: 9 for k in orte.ART_NAMEN}, alt)
-        self.assertEqual(f, ['ch: zusammen fällt von 133 auf 63 (mehr als 30 %)'])
+        n = len(orte.ART_NAMEN)
+        self.assertEqual(n, 8, 'seit Runde 54 mit markt')
+        self.assertEqual(f, ['ch: zusammen fällt von %d auf %d (mehr als 30 %%)' % (19 * n, 9 * n)])
 
     def test_ueber_pruefen_mit_vorheriger_datei(self):
         alt_min = pruefe_orte.MIN_EINTRAEGE

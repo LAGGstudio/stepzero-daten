@@ -8,7 +8,7 @@ ADRESSE = 'https://laggstudio.github.io/stepzero-daten/'
 REPO = 'https://github.com/LAGGstudio/stepzero-daten'
 TITEL = {'garten': 'Gemeinschaftsgärten', 'fairteiler': 'Fairteiler', 'verschenkbox': 'Verschenkboxen',
          'buecherschrank': 'Bücherschränke', 'repaircafe': 'Repair-Cafés',
-         'trinkbrunnen': 'Trinkbrunnen', 'refill': 'Refill-Stationen'}
+         'trinkbrunnen': 'Trinkbrunnen', 'refill': 'Refill-Stationen', 'markt': 'Märkte'}
 
 
 def main():

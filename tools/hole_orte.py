@@ -11,7 +11,7 @@ der Dienstagslauf holt nach.
 
   python3 tools/hole_orte.py [ausgabe] [de at ch]
 """
-import json, os, re, sys, time
+import collections, json, os, re, sys, time
 
 sys.path.insert(0, os.path.dirname(__file__))
 from orte import ART_NAMEN, LAENDER, LIZENZ, doppelte_zusammenfuehren, eintrag  # noqa: E402
@@ -61,18 +61,53 @@ def zusammenfassung(land, daten, zusammengefuehrt):
     return zeilen
 
 
+def maerkte_zaehlen(roh, daten):
+    """Runde 54, Block B: Marktplätze im Auszug (amenity=marketplace, ohne
+    access=private/no und Aufgegebenes, das schon geofabrik.elemente
+    weglässt), davon mit Name und mit Öffnungszeiten; aufgenommen (mit Name
+    oder Öffnungszeiten, nach dem Zusammenführen) und davon mit lesbaren
+    Öffnungszeiten; dazu die häufigsten nicht lesbaren Angaben."""
+    roh_maerkte = [el.get('tags') or {} for el in roh.get('elements', [])
+                   if (el.get('tags') or {}).get('amenity') == 'marketplace']
+    maerkte = [e for e in daten['eintraege'] if e['k'] == 'markt']
+    mit_oeffnung = [e for e in maerkte if 'oeffnung' in e]
+    return {
+        'gesamt': len(roh_maerkte),
+        'mit_name': sum(1 for t in roh_maerkte if t.get('name')),
+        'mit_oeffnung': sum(1 for t in roh_maerkte if t.get('opening_hours')),
+        'aufgenommen': len(maerkte),
+        'aufgenommen_mit_oeffnung': len(mit_oeffnung),
+        'lesbar': sum(1 for e in mit_oeffnung if 'zeiten' in e),
+        'nicht_lesbar': collections.Counter(e['oeffnung'] for e in mit_oeffnung if 'zeiten' not in e).most_common(10),
+    }
+
+
+def maerkte_zeilen(land, z):
+    """Die Zahlen aus maerkte_zaehlen fürs Protokoll."""
+    anteil = 100 * z['lesbar'] / z['aufgenommen_mit_oeffnung'] if z['aufgenommen_mit_oeffnung'] else 0
+    zeilen = ['%s: Märkte im Auszug %d, mit Name %d, mit Öffnungszeiten %d; aufgenommen %d, davon mit '
+              'Öffnungszeiten %d, lesbar %d (%.0f %%)'
+              % (land, z['gesamt'], z['mit_name'], z['mit_oeffnung'], z['aufgenommen'],
+                 z['aufgenommen_mit_oeffnung'], z['lesbar'], anteil)]
+    for text, n in z['nicht_lesbar']:
+        zeilen.append('%s:   nicht lesbar %4d× %s' % (land, n, text[:120]))
+    return zeilen
+
+
 def main():
     ziel = sys.argv[1] if len(sys.argv) > 1 else 'ausgabe'
     laender = sys.argv[2:] or list(LAENDER)
     os.makedirs(ziel, exist_ok=True)
     for land in laender:
         anfang = time.time()
-        daten, zusammengefuehrt = umwandeln(holen(land), land)
+        roh = holen(land)
+        daten, zusammengefuehrt = umwandeln(roh, land)
         with open(os.path.join(ziel, land + '.json'), 'w', encoding='utf-8') as f:
             json.dump(daten, f, ensure_ascii=False, separators=(',', ':'))
         print('%s: %d Einträge, Stand %s, Quelle %s, %.0f s'
               % (land, len(daten['eintraege']), daten['stand'], genutzt.get(land, '?'), time.time() - anfang))
         print('\n'.join(zusammenfassung(land, daten, zusammengefuehrt)))
+        print('\n'.join(maerkte_zeilen(land, maerkte_zaehlen(roh, daten))))
     # Woher jedes Land kam, für stand.json (tools/stand.py); nicht in den
     # Ordner mit den veröffentlichten Dateien.
     if os.environ.get('ORTE_QUELLEN_DATEI'):

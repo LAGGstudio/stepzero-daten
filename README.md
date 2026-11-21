@@ -38,6 +38,13 @@ kompaktes JSON:
 verlangt Lizenz oder URI in der Datenbank). `id`: OSM-Typ (`n`, `w`, `r`) und Nummer. `k`: Art. `lat`, `lon`: 5
 Nachkommastellen, bei Wegen und Relationen die Mitte. `name`, `adresse`
 (Straße Nr, PLZ Ort) und `oeffnung` (`opening_hours` roh) nur, wenn vorhanden.
+Seit Runde 54 bei Märkten (`k` = `markt`) dazu `zeiten`, die Öffnungszeiten
+als lesbarer Text, `{"de": "Mi, Sa 8–13 Uhr", "en": "Wed, Sat 8 a.m.–1 p.m."}`,
+nur wenn `tools/oeffnungszeiten.py` sie sicher versteht (feste Regeln für
+Tage, Tagesbereiche, Zeiten und mehrere Regeln mit Semikolon, kein
+Sprachmodell; was nicht passt, etwa Feiertage, Monate oder n-te Wochentage,
+bekommt keinen Text; Einzelheiten im Kopf der Datei). Ältere Apps übergehen
+die Art und das Feld.
 
 ## Arten und Etiketten
 
@@ -50,6 +57,7 @@ Nachkommastellen, bei Wegen und Relationen die Mitte. `name`, `adresse`
 | `repaircafe` | `repair_cafe=yes` oder `repair=assisted_self_service` |
 | `trinkbrunnen` | `amenity=drinking_water` |
 | `refill` | `drinking_water:refill=yes` |
+| `markt` | `amenity=marketplace` (seit Runde 54; Punkte, Flächen als Mitte; nur mit `name` oder `opening_hours`) |
 
 Ein Ort bekommt die erste passende Art in dieser Reihenfolge. Ausgeschlossen:
 `access=private` oder `no`, `drinking_water=no` und alles mit `disused:` oder
@@ -82,6 +90,10 @@ Köln 17 m auseinander). Die Pipeline führt sie zusammen
   Erdradius 6371,0088 km wie in der App; bis zum 12.11.2026 unter 100 m, dann
   blieb der Garten „Querbeet“ in Köln mit zwei Knoten 113 m auseinander
   doppelt);
+- bei Märkten (seit Runde 54) immer unter 200 m, auch bei allgemeinen
+  Namen: Ein Markt steht oft als Fläche und als Punkt in OSM, die Mitte der
+  Fläche liegt weit vom Punkt, und fast jeder heißt „Wochenmarkt“ oder
+  „Markt“;
 - bei einem allgemeinen Namen nur unter 30 m (seit dem 13.11.2026; bis dahin
   wurden Gattungswörter und Standardnamen nie zusammengeführt, und ein
   Straßenname galt als eigener Name: zwei Trinkbrunnen „Dorfstrasse“ 193 m

@@ -39,7 +39,7 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
   lesen können: unbekannte Arten übergeht sie, fehlende Pflichtfelder machen
   die Datei für sie kaputt; die App verwirft außerdem neue Dateien mit weniger
   als 100 Einträgen.
-- **`STANDARDNAMEN` in `tools/orte.py` und `ortGarten` … `ortRefill` in
+- **`STANDARDNAMEN` in `tools/orte.py` und `ortGarten` … `ortRefill`, `ortMarkt` in
   `lib/l10n/app_de.arb` und `app_en.arb` der App gehören zusammen** (die
   Namen, die die App für Orte ohne Namen zeigt; sie gelten wie die
   Gattungswörter und Straßennamen als allgemein, Einträge mit ihnen werden

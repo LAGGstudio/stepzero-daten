@@ -26,7 +26,7 @@ MIN_VORHER = 20
 # CH 16 151) und ein Stand höchstens so viele Tage alt.
 MIN_EINTRAEGE = 1000
 MAX_ALTER_TAGE = 30
-FELDER = {'id', 'k', 'lat', 'lon', 'name', 'adresse', 'oeffnung'}
+FELDER = {'id', 'k', 'lat', 'lon', 'name', 'adresse', 'oeffnung', 'zeiten'}
 
 
 def schema_fehler(land, daten, heute=None):
@@ -71,6 +71,13 @@ def schema_fehler(land, daten, heute=None):
         for feld in ('name', 'adresse', 'oeffnung'):
             if feld in e and (not isinstance(e[feld], str) or not e[feld].strip()):
                 f.append('%s %s: %s leer' % (land, e['id'], feld))
+        # Runde 54: lesbare Öffnungszeiten nur bei Märkten, je ein Text
+        # deutsch und englisch, nur neben den rohen.
+        if 'zeiten' in e:
+            z = e['zeiten']
+            if (e['k'] != 'markt' or 'oeffnung' not in e or not isinstance(z, dict) or set(z) != {'de', 'en'}
+                    or not all(isinstance(v, str) and v.strip() for v in z.values())):
+                f.append('%s %s: zeiten %r' % (land, e['id'], z))
     return f
 
 

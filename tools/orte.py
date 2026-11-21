@@ -4,6 +4,8 @@ Ausschlüsse, die Umwandlung eines Elements (Format wie früher von Overpass mit
 Zusammenführen doppelter Einträge und die Kennung der Abrufe."""
 import math, re, unicodedata
 
+from oeffnungszeiten import lesbar
+
 LAENDER = ('de', 'at', 'ch')
 
 # Die Kennung jedes Abrufs dieses Repos (Geofabrik, GitHub Pages): Projekt,
@@ -27,6 +29,9 @@ ARTEN = (
     ('repaircafe', ({'repair_cafe': 'yes'}, {'repair': 'assisted_self_service'})),
     ('trinkbrunnen', ({'amenity': 'drinking_water'},)),
     ('refill', ({'drinking_water:refill': 'yes'},)),
+    # Runde 54: Marktplätze (Punkte, Flächen als Mitte des Rechtecks); nur mit
+    # Name oder Öffnungszeiten (`eintrag`).
+    ('markt', ({'amenity': 'marketplace'},)),
 )
 ART_NAMEN = tuple(a for a, _ in ARTEN)
 
@@ -78,6 +83,10 @@ def eintrag(element):
     k = art(tags)
     if k is None:
         return None
+    # Ein Marktplatz ohne Name und ohne Öffnungszeiten sagt in der App nichts
+    # (Runde 54, Marcels Vorgabe): weglassen.
+    if k == 'markt' and not (tags.get('name') or tags.get('opening_hours')):
+        return None
     if 'lat' in element:
         lat, lon = element['lat'], element['lon']
     elif 'center' in element:
@@ -90,6 +99,12 @@ def eintrag(element):
                        ('oeffnung', tags.get('opening_hours'))):
         if wert:
             e[feld] = wert
+    # Runde 54: für Märkte die Öffnungszeiten als lesbarer Text in beiden
+    # Sprachen, nur wenn sie sicher passen (tools/oeffnungszeiten.py).
+    if k == 'markt' and tags.get('opening_hours'):
+        zeiten = lesbar(tags['opening_hours'])
+        if zeiten:
+            e['zeiten'] = zeiten
     return e
 
 
@@ -167,6 +182,7 @@ STANDARDNAMEN = {
     'repaircafe': ('Repair-Café', 'Repair café'),
     'trinkbrunnen': ('Trinkbrunnen', 'Drinking fountain'),
     'refill': ('Refill-Station', 'Refill station'),
+    'markt': ('Markt', 'Market'),
 }
 
 
@@ -242,6 +258,12 @@ def grenze_m(gruppe):
     sobald ein Name der Gruppe allgemein ist (verschiedene Schreibweisen
     desselben Schlüssels, etwa „Lange Straße“ und „Langestraße“), sonst
     DOPPEL_ABSTAND_M."""
+    # Märkte (Runde 54): Ein Markt ist oft als Fläche und als Punkt eingetragen,
+    # die Mitte der Fläche liegt dann weit vom Punkt; und fast jeder heißt
+    # „Wochenmarkt“ oder „Markt“ (ein Straßenwort). Darum für sie immer die
+    # Grenze der eigenen Namen: zwei Wochenmärkte unter 200 m sind einer.
+    if gruppe and gruppe[0]['k'] == 'markt':
+        return DOPPEL_ABSTAND_M
     if any(allerweltsname(e['name']) for e in gruppe):
         return DOPPEL_ABSTAND_ALLGEMEIN_M
     return DOPPEL_ABSTAND_M
