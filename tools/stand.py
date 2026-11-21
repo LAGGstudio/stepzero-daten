@@ -16,8 +16,8 @@ from orte import LAENDER  # noqa: E402
 def quelle_aus(pfad):
     """Die Quelle des Laufs aus der Datei, die tools/hole_orte.py schreibt
     (ORTE_QUELLEN_DATEI, je Land): kamen alle Länder von derselben, ihr Name,
-    sonst je Land („de: overpass (…), at: geofabrik, ch: geofabrik“). Ohne
-    Datei None."""
+    sonst je Land („de: …, at: geofabrik, ch: geofabrik“; bis Runde 54 kam so
+    ein Land auch von Overpass). Ohne Datei None."""
     if not pfad or not os.path.exists(pfad):
         return None
     with open(pfad, encoding='utf-8') as d:
@@ -38,7 +38,7 @@ def berechnen(ordner, heute=None, quelle=None):
         eintraege[land] = len(daten['eintraege'])
     return {
         'lauf': (heute or datetime.datetime.now(datetime.timezone.utc).date()).isoformat(),
-        'quelle': quelle or os.environ.get('ORTE_QUELLE') or 'geofabrik',
+        'quelle': quelle or 'geofabrik',
         'stand': stand,
         'eintraege': eintraege,
     }

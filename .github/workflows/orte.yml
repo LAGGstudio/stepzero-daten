@@ -11,11 +11,6 @@ on:
     - cron: '23 3 * * 2'
   workflow_dispatch:
     inputs:
-      quelle:
-        description: 'Quelle der Orte (geofabrik fällt bei Bedarf auf Overpass zurück; overpass fragt nur Overpass)'
-        type: choice
-        options: [geofabrik, overpass]
-        default: geofabrik
       fehlerprobe:
         description: 'Rote Probe: scheitert vor jedem Abruf und jeder Veröffentlichung (legt das Issue an)'
         type: boolean
@@ -60,8 +55,8 @@ jobs:
     if: ${{ needs.vorab.outputs.noetig == 'true' }}
     runs-on: ubuntu-24.04
     # Obergrenze für den ganzen Job (seit dem 20.11.2026): je Land höchstens
-    # 30 min für den Auszug und 20 min für den Rückfall auf Overpass, dazu die
-    # laufenden Abrufe (README, „Wiederholung und Rückfall“).
+    # 30 min für den Auszug, dazu die laufenden Abrufe (README,
+    # „Wiederholung“; der Rückfall auf Overpass ist seit Runde 54 entfernt).
     timeout-minutes: 240
     outputs:
       stand: ${{ steps.stand.outputs.stand }}
@@ -80,12 +75,9 @@ jobs:
       - name: pyosmium für den Geofabrik-Auszug
         # Die Version des letzten grünen Laufs (42780352071: osmium-4.3.2).
         run: python3 -m pip install 'osmium==4.3.*'
-      - name: Orte holen (Geofabrik-Auszug, Rückfall Overpass; von Hand auch nur Overpass)
+      - name: Orte holen (Geofabrik-Auszug, ohne Rückfall)
         env:
-          # Geltende Quelle seit dem 10.11.2026; zeitgesteuert gibt es keine
-          # Eingaben, dann gilt geofabrik.
-          ORTE_QUELLE: ${{ inputs.quelle || 'geofabrik' }}
-          # Woher jedes Land wirklich kam (Auszug oder Rückfall), für stand.json.
+          # Woher jedes Land kam (seit Runde 54 immer der Auszug), für stand.json.
           ORTE_QUELLEN_DATEI: ${{ runner.temp }}/quellen.json
         run: python3 tools/hole_orte.py ausgabe
       - name: Prüfen gegen die veröffentlichte Fassung
@@ -93,7 +85,6 @@ jobs:
       - name: Stand für stand.json
         id: stand
         env:
-          ORTE_QUELLE: ${{ inputs.quelle || 'geofabrik' }}
           ORTE_QUELLEN_DATEI: ${{ runner.temp }}/quellen.json
         run: python3 tools/stand.py ausgabe >> "$GITHUB_OUTPUT"
       - name: Übersichtsseite

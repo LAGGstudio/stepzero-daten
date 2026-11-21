@@ -1,9 +1,18 @@
 """Gemeinsame Regeln für die Orte aus OpenStreetMap: Arten, Etiketten,
-Ausschlüsse, die Umwandlung eines Overpass-Elements in einen Eintrag und das
-Zusammenführen doppelter Einträge."""
+Ausschlüsse, die Umwandlung eines Elements (Format wie früher von Overpass mit
+`out center tags`, heute aus tools/geofabrik.py) in einen Eintrag, das
+Zusammenführen doppelter Einträge und die Kennung der Abrufe."""
 import math, re, unicodedata
 
 LAENDER = ('de', 'at', 'ch')
+
+# Die Kennung jedes Abrufs dieses Repos (Geofabrik, GitHub Pages): Projekt,
+# Repo und Kontakt, wie Geofabrik („Download responsibly!“, 10.09.2025) und
+# die OSM-Richtlinien es für automatische Abrufe erwarten (Runde 54; bis
+# dahin ohne Repo-Adresse).
+REPO_URL = 'https://github.com/LAGGstudio/stepzero-daten'
+KONTAKT = 'info.laggstudio@gmail.com'
+USER_AGENT = 'StepZero-Daten/1.0 (+%s; %s)' % (REPO_URL, KONTAKT)
 
 # Je Art die Etiketten, die sie auslösen; die erste passende Art gewinnt.
 # repaircafe: `repair_cafe=yes` wie vorgegeben (am 9.11.2026 weltweit nicht in
@@ -61,7 +70,8 @@ def adresse(tags):
 
 
 def eintrag(element):
-    """Overpass-Element (out center tags) → Eintrag oder None."""
+    """Element (wie `out center tags`: Lage oder `center`, `tags`) → Eintrag
+    oder None."""
     tags = element.get('tags') or {}
     if ausgeschlossen(tags):
         return None

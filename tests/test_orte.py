@@ -79,13 +79,6 @@ class Umwandlung(unittest.TestCase):
         self.assertEqual([e['id'] for e in d['eintraege']], ['n2', 'n1'])
         self.assertNotIn(' ', json.dumps(d['eintraege'][0], separators=(',', ':')))
 
-    def test_abfrage(self):
-        q = hole_orte.abfrage('at')
-        self.assertIn('area["ISO3166-1"="AT"][admin_level=2]', q)
-        self.assertIn('[timeout:180]', q)
-        self.assertIn('out center tags;', q)
-        self.assertIn('nwr["leisure"="garden"]["garden:type"="community"](area.land);', q)
-
 
 class Rueckfall(unittest.TestCase):
     def test_mitte_des_rechtecks(self):
@@ -99,94 +92,35 @@ class Rueckfall(unittest.TestCase):
         self.assertIn(('repair', 'assisted_self_service'), geofabrik.ETIKETTEN)
         self.assertIn(('drinking_water:refill', 'yes'), geofabrik.ETIKETTEN)
 
-    def test_quelle_geofabrik_standard_overpass_von_hand_ohne_auszug(self):
+    def test_nur_der_auszug_ohne_overpass(self):
+        # Runde 54 (Marcels Auftrag): Der Rückfall auf Overpass ist ganz
+        # entfernt, auch der Handstart mit ORTE_QUELLE=overpass.
         import geofabrik
         aufrufe = []
-        alt_o, alt_g = hole_orte.overpass_holen, geofabrik.holen
-        try:
-            def overpass(land):
-                aufrufe.append(('overpass', land))
-                raise SystemExit('nicht erreichbar')
-            hole_orte.overpass_holen = overpass
-            geofabrik.holen = lambda land: aufrufe.append(('geofabrik', land)) or {'elements': []}
-            os.environ.pop('ORTE_QUELLE', None)
-            self.assertEqual(hole_orte.holen('ch'), {'elements': []})
-            self.assertEqual(aufrufe, [('geofabrik', 'ch')], 'kommt der Auszug, bleibt Overpass aus dem Spiel')
-            self.assertEqual(hole_orte.genutzt['ch'], 'geofabrik')
-            os.environ['ORTE_QUELLE'] = 'geofabrik'
-            hole_orte.holen('at')
-            self.assertEqual(aufrufe[-1], ('geofabrik', 'at'))
-            # Von Hand nur Overpass, ohne Rückfall auf den Auszug.
-            os.environ['ORTE_QUELLE'] = 'overpass'
-            with self.assertRaises(SystemExit):
-                hole_orte.holen('de')
-            self.assertEqual(aufrufe[-1], ('overpass', 'de'))
-            os.environ['ORTE_QUELLE'] = 'overpas'
-            with self.assertRaises(SystemExit) as ctx:
-                hole_orte.holen('de')
-            self.assertIn('unbekannt', str(ctx.exception))
-            self.assertEqual(len(aufrufe), 3)
-        finally:
-            os.environ.pop('ORTE_QUELLE', None)
-            hole_orte.overpass_holen, geofabrik.holen = alt_o, alt_g
-
-
-class OverpassAntwort(unittest.TestCase):
-    def roh(self, basis='2026-11-08T21:00:00Z', elemente=1, remark=None):
-        r = {'osm3s': {'timestamp_osm_base': basis}, 'elements': [{'type': 'node', 'id': i} for i in range(elemente)]}
-        if remark:
-            r['remark'] = remark
-        return r
-
-    def test_brauchbar(self):
-        hole_orte.brauchbar('de', self.roh(), heute=HEUTE)
-        hole_orte.brauchbar('de', self.roh(basis='2026-11-02T00:00:00Z'), heute=HEUTE)
-
-    def test_veraltet_leer_oder_fehler(self):
-        # So antwortete overpass.private.coffee am 9.11.2026 (Stand Juni, DE leer).
-        for roh, text in (
-            (self.roh(basis='2026-06-01T00:00:00Z'), '161 Tage alt'),
-            (self.roh(basis='2026-11-01T00:00:00Z'), '8 Tage alt'),
-            (self.roh(elemente=0), 'keine Elemente'),
-            (self.roh(remark='runtime error: Query timed out in "query" at line 3 after 181 seconds.'), 'Overpass meldet'),
-            ({'elements': [{'type': 'node', 'id': 1}]}, 'ohne Datenstand'),
-        ):
-            with self.assertRaises(hole_orte.Unbrauchbar) as ctx:
-                hole_orte.brauchbar('de', roh, heute=HEUTE)
-            self.assertIn(text, str(ctx.exception))
-
-    def test_unbrauchbar_ohne_rueckfall(self):
-        import geofabrik
         alt_g = geofabrik.holen
-        alt_url = hole_orte.urllib.request.urlopen
         try:
-            geofabrik.holen = lambda land: self.fail('kein Rückfall mehr')
-
-            class Antwort(io.BytesIO):
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *a):
-                    return False
-            veraltet = json.dumps(self.roh(basis='2026-06-01T00:00:00Z')).encode()
-            hole_orte.urllib.request.urlopen = lambda *a, **k: Antwort(veraltet)
+            geofabrik.holen = lambda land: aufrufe.append(land) or {'elements': []}
             os.environ['ORTE_QUELLE'] = 'overpass'
-            # Die Meldungen je Server nicht ins Protokoll des Laufs: Am
-            # 20.11.2026 stand dort mitten in einem grünen Lauf „172 Tage alt“.
-            alt_stderr, sys.stderr = sys.stderr, io.StringIO()
-            try:
-                with self.assertRaises(hole_orte.Unbrauchbar):
-                    hole_orte.holen('de')
-                meldungen = sys.stderr.getvalue().splitlines()
-            finally:
-                sys.stderr = alt_stderr
-            # Seit Runde 52 nur noch ein Server (Runde 52, Block D).
-            self.assertEqual(len(meldungen), 1, 'der eine Server, unbrauchbar')
-            self.assertTrue(meldungen[0].startswith('overpass.private.coffee: de: Overpass-Datenstand 2026-06-01 ist '))
+            self.assertEqual(hole_orte.holen('ch'), {'elements': []})
+            self.assertEqual(aufrufe, ['ch'], 'auch mit ORTE_QUELLE=overpass der Auszug')
+            self.assertEqual(hole_orte.genutzt['ch'], 'geofabrik')
         finally:
             os.environ.pop('ORTE_QUELLE', None)
             geofabrik.holen = alt_g
-            hole_orte.urllib.request.urlopen = alt_url
+
+    def test_kein_overpass_mehr_im_code_und_im_workflow(self):
+        wurzel = os.path.join(os.path.dirname(__file__), '..')
+        for teil in ('hole_orte', 'geofabrik', 'pruefe_orte', 'nachholen', 'stand', 'seite_bauen'):
+            with open(os.path.join(wurzel, 'tools', teil + '.py'), encoding='utf-8') as d:
+                code = d.read()
+            for wort in ('interpreter', 'private.coffee', 'overpass-api', 'OVERPASS_URL', 'ORTE_QUELLE ='):
+                self.assertNotIn(wort, code, '%s: %s' % (teil, wort))
+        for name in ('ENDPUNKTE', 'overpass_holen', 'brauchbar', 'abfrage', 'Unbrauchbar'):
+            self.assertFalse(hasattr(hole_orte, name), name)
+        with open(os.path.join(wurzel, '.github', 'workflows', 'orte.yml'), encoding='utf-8') as d:
+            workflow = d.read()
+        self.assertNotIn('ORTE_QUELLE:', workflow)
+        self.assertNotIn('quelle:', workflow.split('workflow_dispatch:', 1)[1].split('\npermissions:', 1)[0])
 
 
 def ort(i, name=None, lat=50.9, lon=6.9, k='garten', **mehr):
@@ -678,13 +612,17 @@ class Download(_MitGeofabrik, unittest.TestCase):
         self.assertEqual(len(self.pbf_abrufe()), 3)
         self.assertIn('600 von 1200 Byte', sys.stderr.getvalue())
 
-    def test_falsche_pruefsumme_dreimal_dann_abbruch(self):
+    def test_falsche_pruefsumme_zweimal_dann_abbruch(self):
+        # Bis Runde 53 dreimal (alle Versuche); seit Runde 54 höchstens zwei
+        # ganze Längen je Land und Lauf (Geofabriks „Download responsibly!“).
         _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf.md5'] = [
             (200, {}, b'0123456789abcdef0123456789abcdef  switzerland-261111.osm.pbf\n')]
         with self.assertRaises(SystemExit):
             self.laden()
-        self.assertEqual(len(self.pbf_abrufe()), 3)
+        self.assertEqual(len(self.pbf_abrufe()), 2)
         self.assertIn('Prüfsumme', sys.stderr.getvalue())
+        self.assertIn('schon 2400 Byte geladen (2-mal die Länge des Auszugs), kein weiterer Versuch',
+                      sys.stderr.getvalue())
 
     def test_ohne_md5_abbruch(self):
         del _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf.md5']
@@ -700,6 +638,75 @@ class Download(_MitGeofabrik, unittest.TestCase):
         self.assertIn('Versuch 1 von 3 gescheitert', sys.stderr.getvalue())
         with open(self.ziel, 'rb') as d:
             self.assertEqual(d.read(), self.INHALT)
+
+    def test_4xx_ohne_wiederholung(self):
+        # Runde 54: Was Geofabrik ablehnt (403, 404, 410, 429), wird nicht
+        # wiederholt; 408 ist ein Zeitfehler und darf es.
+        for status in (403, 404, 410, 429):
+            _Geofabrik.anfragen = []
+            _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(status, {}, b'nein')]
+            with self.assertRaises(self.geofabrik.Gescheitert) as ctx:
+                self.laden()
+            self.assertEqual(len(self.pbf_abrufe()), 1, status)
+            self.assertIn('nach 1 Versuchen', str(ctx.exception))
+            self.assertIn('Geofabrik lehnt ab (%d), kein weiterer Versuch' % status, sys.stderr.getvalue())
+        _Geofabrik.anfragen = []
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [(408, {}, b'zu langsam'), (200, {}, self.INHALT)]
+        self.laden()
+        self.assertEqual(len(self.pbf_abrufe()), 2)
+
+    def test_zu_wenig_platz_ohne_wiederholung_und_ohne_datei(self):
+        alt = self.geofabrik.freier_platz
+        try:
+            self.geofabrik.freier_platz = lambda ordner: len(self.INHALT) + self.geofabrik.RESERVE - 1
+            with self.assertRaises(self.geofabrik.Gescheitert):
+                self.laden()
+        finally:
+            self.geofabrik.freier_platz = alt
+        self.assertEqual(len(self.pbf_abrufe()), 1, 'kein zweiter Versuch')
+        self.assertIn('zu wenig Platz', sys.stderr.getvalue())
+        self.assertIn('kein weiterer Versuch', sys.stderr.getvalue())
+        self.assertFalse(os.path.exists(self.ziel), 'nichts angefangen')
+        # Mit genau genug Platz klappt es.
+        try:
+            self.geofabrik.freier_platz = lambda ordner: len(self.INHALT) + self.geofabrik.RESERVE
+            self.laden()
+        finally:
+            self.geofabrik.freier_platz = alt
+
+    def test_schreiben_scheitert_ohne_wiederholung(self):
+        import errno
+        echt = open
+
+        class VolleDatei:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def write(self, stueck):
+                raise OSError(errno.ENOSPC, 'No space left on device')
+        self.geofabrik.open = lambda pfad, modus='r', *a, **k: (VolleDatei() if modus == 'wb'
+                                                                 else echt(pfad, modus, *a, **k))
+        try:
+            with self.assertRaises(self.geofabrik.Gescheitert):
+                self.laden()
+        finally:
+            del self.geofabrik.open
+        self.assertEqual(len(self.pbf_abrufe()), 1)
+        self.assertIn('Schreiben gescheitert', sys.stderr.getvalue())
+
+    def test_protokoll_nennt_die_geladenen_byte(self):
+        _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [
+            (200, {'Content-Length': str(len(self.INHALT))}, self.INHALT[:600]), (200, {}, self.INHALT)]
+        self.laden()
+        protokoll = sys.stderr.getvalue()
+        self.assertIn('Versuch 1 von 3 gescheitert: 600 von 1200 Byte (600 Byte geladen)', protokoll)
+        self.assertIn('ch: 1800 Byte in 2 Versuch(en) geladen', protokoll)
 
     def test_ohne_content_length(self):
         _Geofabrik.antworten['/europe/switzerland-261111.osm.pbf'] = [
@@ -787,139 +794,62 @@ class Wiederholung(_MitGeofabrik, unittest.TestCase):
         self.assertIn('Diagnose gibt-es-nicht.invalid: Namensauflösung gescheitert', aus.getvalue())
 
 
-class RueckfallOverpass(unittest.TestCase):
-    """Seit dem 20.11.2026: Kommt der Auszug nach allen Versuchen nicht,
-    fragt das Land Overpass; scheitert auch das, endet der Lauf rot und
-    veröffentlicht nichts. Seit Runde 52 (Block D, Marcels Auftrag) nur noch
-    overpass.private.coffee; VK Maps (maps.mail.ru) ist raus."""
-    S1 = 'https://overpass.private.coffee/api/interpreter'
+class OhneRueckfall(unittest.TestCase):
+    """Seit Runde 54: Kommt der Auszug nach allen Versuchen nicht, endet der
+    Lauf rot und veröffentlicht nichts; online bleibt der alte Stand, der
+    Dienstagslauf holt nach (bis Runde 53 fragte das Land Overpass)."""
 
     def setUp(self):
         import geofabrik
         self.geofabrik = geofabrik
-        self.alt = (hole_orte._overpass_einmal, geofabrik.holen, geofabrik._einmal_laden, geofabrik.netz_diagnose,
-                    hole_orte.overpass_holen, hole_orte.holen)
+        self.alt = (geofabrik.holen, geofabrik._einmal_laden, geofabrik.netz_diagnose)
         self.stderr = sys.stderr
         sys.stderr = io.StringIO()
-        self.anfragen, self.pausen = [], []
         hole_orte.genutzt.clear()
-        os.environ.pop('ORTE_QUELLE', None)
         os.environ.pop('ORTE_QUELLEN_DATEI', None)
 
     def tearDown(self):
         sys.stderr = self.stderr
-        (hole_orte._overpass_einmal, self.geofabrik.holen, self.geofabrik._einmal_laden, self.geofabrik.netz_diagnose,
-         hole_orte.overpass_holen, hole_orte.holen) = self.alt
+        self.geofabrik.holen, self.geofabrik._einmal_laden, self.geofabrik.netz_diagnose = self.alt
         os.environ.pop('ORTE_QUELLEN_DATEI', None)
 
     def frisch(self, n=1):
         return {'osm3s': {'timestamp_osm_base': datetime.date.today().isoformat() + 'T00:00:00Z'},
                 'elements': [knoten(i, {'amenity': 'drinking_water'}) for i in range(1, n + 1)]}
 
-    def server(self, antworten):
-        """Ersetzt den Abruf: je Server eine Liste aus Antworten oder
-        Ausnahmen; die letzte gilt weiter."""
-        def einmal(endpunkt, daten):
-            self.anfragen.append(endpunkt)
-            liste = antworten[endpunkt]
-            a = liste.pop(0) if len(liste) > 1 else liste[0]
-            if isinstance(a, Exception):
-                raise a
-            return a
-        hole_orte._overpass_einmal = einmal
-
-    def overpass(self, **mehr):
-        return hole_orte.overpass_holen('de', schlafen=self.pausen.append, **mehr)
-
-    def test_nur_private_coffee(self):
-        self.assertEqual(hole_orte.ENDPUNKTE, (self.S1,))
-        self.assertNotIn('maps.mail.ru', ' '.join(hole_orte.ENDPUNKTE))
-        self.assertEqual(hole_orte.OVERPASS_PAUSEN, (30, 90))
-        self.assertGreaterEqual(hole_orte.OVERPASS_PAUSEN[0], 30, 'das Wiki bittet um mindestens 30 s')
-        self.assertEqual(hole_orte.OVERPASS_ZEITGRENZE, 20 * 60)
-        self.assertNotIn('overpass-api.de', ' '.join(hole_orte.ENDPUNKTE))
-
-    def test_erster_server_antwortet_beim_dritten_versuch(self):
-        self.server({self.S1: [OSError('timed out'), OSError('HTTP Error 504'), self.frisch()]})
-        self.assertEqual(len(self.overpass()['elements']), 1)
-        self.assertEqual(self.anfragen, [self.S1] * 3)
-        self.assertEqual(self.pausen, [30, 90], 'wachsende Pause')
-        self.assertEqual(hole_orte.genutzt['de'], 'overpass (overpass.private.coffee)')
-
-    def test_ein_server_drei_versuche_dann_rot(self):
-        self.server({self.S1: [OSError('HTTP Error 429: Too Many Requests')]})
-        with self.assertRaises(SystemExit) as ctx:
-            self.overpass()
-        self.assertEqual(str(ctx.exception), 'de: Overpass nicht erreichbar (overpass.private.coffee)')
-        self.assertEqual(self.anfragen, [self.S1] * 3, 'kein zweiter Server')
-        self.assertEqual(self.pausen, [30, 90])
-        self.assertNotIn('de', hole_orte.genutzt)
-        self.assertIn('overpass.private.coffee: Versuch 3 von 3 gescheitert', sys.stderr.getvalue())
-
-    def test_unbrauchbare_antwort_ohne_zweiten_versuch(self):
-        alt = {'osm3s': {'timestamp_osm_base': '2026-06-01T00:00:00Z'}, 'elements': [knoten(1, {})]}
-        self.server({self.S1: [alt]})
-        with self.assertRaises(hole_orte.Unbrauchbar):
-            self.overpass()
-        self.assertEqual(self.anfragen, [self.S1])
-        self.assertEqual(self.pausen, [], 'ohne Pause und ohne zweiten Versuch')
-        self.assertIn('Tage alt', sys.stderr.getvalue())
-
-    def test_zeitgrenze_fuer_overpass(self):
-        self.server({self.S1: [OSError('timed out')]})
-        # Jeder Abruf kostet 600 s; nach dem zweiten wären es mit der Pause
-        # von 90 s mehr als die 20 Minuten.
-        zeit = iter(range(0, 100000, 600))
-        with self.assertRaises(SystemExit):
-            self.overpass(uhr=lambda: next(zeit))
-        self.assertEqual(self.anfragen, [self.S1] * 2, 'kein dritter Versuch')
-        self.assertIn('Zeitgrenze von 1200 s für Overpass erreicht', sys.stderr.getvalue())
-
-    def test_auszug_gescheitert_dann_overpass(self):
-        def auszug(land):
-            raise self.geofabrik.Gescheitert('%s: Geofabrik-Auszug nach 5 Versuchen nicht vollständig' % land)
-        self.geofabrik.holen = auszug
-        self.server({self.S1: [self.frisch(3)]})
-        roh = hole_orte.holen('at')
-        self.assertEqual(len(roh['elements']), 3)
-        self.assertEqual(hole_orte.genutzt['at'], 'overpass (overpass.private.coffee)')
-        self.assertIn('nach 5 Versuchen nicht vollständig; Rückfall auf Overpass', sys.stderr.getvalue())
-
-    def test_wie_am_16_11_netz_nicht_erreichbar_bis_zum_rueckfall(self):
-        # Der ganze Weg mit dem Fehler aus dem Protokoll des Laufs 43860656823.
+    def test_wie_am_16_11_netz_nicht_erreichbar_dann_rot(self):
+        # Der Fehler aus dem Protokoll des Laufs 43860656823: fünf Versuche,
+        # eine Diagnose, dann Gescheitert, kein weiterer Abruf irgendwo.
         import urllib.error
         versuche, diagnosen, pausen = [], [], []
 
-        def einmal(url, ziel):
+        def einmal(url, ziel, zaehler):
             versuche.append(url)
             raise urllib.error.URLError(OSError(101, 'Network is unreachable'))
         self.geofabrik._einmal_laden = einmal
         self.geofabrik.netz_diagnose = lambda url, **k: diagnosen.append(url)
-        # geofabrik.holen ruft laden ohne eigene Pause: time.sleep ersetzen.
         alt_sleep = self.geofabrik.time.sleep
         self.geofabrik.time.sleep = pausen.append
         try:
-            self.server({self.S1: [self.frisch(4)]})
-            roh = hole_orte.holen('de')
+            with self.assertRaises(self.geofabrik.Gescheitert) as ctx:
+                hole_orte.holen('de')
         finally:
             self.geofabrik.time.sleep = alt_sleep
+        self.assertNotEqual(ctx.exception.code, 0)
         self.assertEqual(versuche, ['https://download.geofabrik.de/europe/germany-latest.osm.pbf'] * 5)
         self.assertEqual(pausen, [60, 120, 240, 480])
         self.assertEqual(diagnosen, versuche[:1], 'eine Diagnose nach dem letzten Versuch')
-        self.assertEqual(sys.stderr.getvalue().count('[Errno 101] Network is unreachable'), 5)
-        self.assertEqual(len(roh['elements']), 4)
-        self.assertEqual(hole_orte.genutzt['de'], 'overpass (overpass.private.coffee)')
+        self.assertNotIn('de', hole_orte.genutzt)
+        self.assertNotIn('Rückfall', sys.stderr.getvalue())
 
-    def test_alles_scheitert_lauf_rot_nichts_halbes(self):
-        # CH kommt, AT scheitert an Auszug und Overpass: Exit ungleich 0, kein
-        # at.json, keine Quellen-Datei; die Prüfung fände die Lücke auch.
+    def test_ein_land_scheitert_lauf_rot_nichts_halbes(self):
+        # CH kommt, AT scheitert: Exit ungleich 0, kein at.json, keine
+        # Quellen-Datei; die Prüfung fände die Lücke auch.
         def auszug(land):
             if land == 'ch':
                 return self.frisch(2)
             raise self.geofabrik.Gescheitert('%s: Geofabrik-Auszug nach 5 Versuchen nicht vollständig' % land)
         self.geofabrik.holen = auszug
-        self.server({self.S1: [OSError('timed out')]})
-        hole_orte.overpass_holen = lambda land, alt=hole_orte.overpass_holen: alt(land, schlafen=self.pausen.append)
         ziel = tempfile.mkdtemp()
         quellen = os.path.join(tempfile.mkdtemp(), 'quellen.json')
         os.environ['ORTE_QUELLEN_DATEI'] = quellen
@@ -938,10 +868,7 @@ class RueckfallOverpass(unittest.TestCase):
 
     def test_quellen_datei_fuer_stand_json(self):
         import stand
-        self.geofabrik.holen = lambda land: (_ for _ in ()).throw(self.geofabrik.Gescheitert(land)) if land == 'de' \
-            else self.frisch(2)
-        self.server({self.S1: [OSError('timed out'), self.frisch(2)]})
-        hole_orte.overpass_holen = lambda land, alt=hole_orte.overpass_holen: alt(land, schlafen=self.pausen.append)
+        self.geofabrik.holen = lambda land: self.frisch(2)
         ziel = tempfile.mkdtemp()
         quellen = os.path.join(tempfile.mkdtemp(), 'quellen.json')
         os.environ['ORTE_QUELLEN_DATEI'] = quellen
@@ -952,17 +879,59 @@ class RueckfallOverpass(unittest.TestCase):
             ausgabe = sys.stdout.getvalue()
         finally:
             sys.argv, sys.stdout = argv, stdout
-        self.assertIn('Quelle overpass (overpass.private.coffee)', ausgabe)
-        self.assertIn('Quelle geofabrik', ausgabe)
+        self.assertEqual(ausgabe.count('Quelle geofabrik'), 3)
         with open(quellen, encoding='utf-8') as d:
-            self.assertEqual(json.load(d), {'de': 'overpass (overpass.private.coffee)', 'at': 'geofabrik', 'ch': 'geofabrik'})
-        self.assertEqual(stand.quelle_aus(quellen), 'de: overpass (overpass.private.coffee), at: geofabrik, ch: geofabrik')
-        self.assertEqual(stand.berechnen(ziel, heute=datetime.date(2026, 11, 20))['quelle'],
-                         'de: overpass (overpass.private.coffee), at: geofabrik, ch: geofabrik')
-        with open(quellen, 'w', encoding='utf-8') as d:
-            json.dump({'de': 'geofabrik', 'at': 'geofabrik', 'ch': 'geofabrik'}, d)
+            self.assertEqual(json.load(d), {'de': 'geofabrik', 'at': 'geofabrik', 'ch': 'geofabrik'})
         self.assertEqual(stand.quelle_aus(quellen), 'geofabrik')
+        self.assertEqual(stand.berechnen(ziel, heute=datetime.date(2026, 11, 20))['quelle'], 'geofabrik')
+        with open(quellen, 'w', encoding='utf-8') as d:
+            json.dump({'de': 'alt', 'at': 'geofabrik', 'ch': 'geofabrik'}, d)
+        self.assertEqual(stand.quelle_aus(quellen), 'de: alt, at: geofabrik, ch: geofabrik')
         self.assertIsNone(stand.quelle_aus(quellen + '.fehlt'))
+
+
+class Kennung(unittest.TestCase):
+    """Runde 54: Jeder Abruf nennt Projekt, Repo-Adresse und Kontakt."""
+
+    def test_eine_kennung_fuer_alle_abrufe(self):
+        import geofabrik
+        self.assertEqual(orte.USER_AGENT, 'StepZero-Daten/1.0 (+https://github.com/LAGGstudio/stepzero-daten; '
+                                          'info.laggstudio@gmail.com)')
+        self.assertIs(geofabrik.USER_AGENT, orte.USER_AGENT)
+        self.assertIs(pruefe_orte.USER_AGENT, orte.USER_AGENT)
+        wurzel = os.path.join(os.path.dirname(__file__), '..', 'tools')
+        for datei in sorted(os.listdir(wurzel)):
+            if not datei.endswith('.py'):
+                continue
+            with open(os.path.join(wurzel, datei), encoding='utf-8') as d:
+                code = d.read()
+            # Jede Anfrage baut einen Request mit der Kennung, keine eigene.
+            self.assertEqual(code.count('urllib.request.Request('),
+                             code.count("headers={'User-Agent': USER_AGENT}"), datei)
+            self.assertNotIn("'StepZero-Daten/1.0 (info", code, datei)
+
+    def test_kennung_kommt_beim_server_an(self):
+        gesehen = []
+
+        class Antwort(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                gesehen.append(self.headers.get('User-Agent'))
+                koerper = b'{"stand": "2026-11-20", "eintraege": []}'
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(koerper)))
+                self.end_headers()
+                self.wfile.write(koerper)
+
+            def log_message(self, *a):
+                pass
+        server = http.server.HTTPServer(('127.0.0.1', 0), Antwort)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            pruefe_orte.vorher_laden('http://127.0.0.1:%d' % server.server_port, 'de')
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(gesehen, [orte.USER_AGENT])
 
 
 class Nachholen(unittest.TestCase):

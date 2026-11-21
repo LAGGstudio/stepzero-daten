@@ -178,7 +178,7 @@ Geofabrik (`download.geofabrik.de/europe/germany`, `austria`, `switzerland`,
 12.11.2026 `osmium==4.3.*`, die Version des letzten grünen Laufs 42780352071
 war 4.3.2). Seit dem 12.11.2026 muss der Download so lang sein wie
 Content-Length und zur `.md5` passen, sonst gilt der Versuch als gescheitert
-(auch bei 503; Versuche und Pausen unter „Wiederholung und Rückfall“).
+(auch bei 503; Versuche und Pausen unter „Wiederholung (ohne Rückfall)“).
 Geofabrik leitet `-latest.osm.pbf` per 307 weiter, AT und CH auf die Datei mit
 Datum (`switzerland-261111.osm.pbf`), DE auf den Spiegel der GWDG; am
 12.11.2026 gab `germany-latest.osm.pbf.md5` bei Geofabrik 404, die Spiegel und
@@ -195,7 +195,7 @@ Zeitstempel des Auszugs. Das OSM-Wiki empfiehlt Auszüge plus osmium
 ausdrücklich, wenn man viele Daten braucht. Die Auszüge folgen den Grenzen mit
 einem kleinen Saum; die Prüfung fängt nur grobe Ausreißer.
 
-### Wiederholung und Rückfall
+### Wiederholung (ohne Rückfall)
 
 Der zeitgesteuerte Lauf vom 16.11.2026 (43860656823, der erste auf
 `ubuntu-24.04`; der Runner stand bei AWS in us-east-1, alle grünen Läufe davor
@@ -210,23 +210,21 @@ letzten. Seit dem 20.11.2026 deshalb:
   `tools/geofabrik.py`). Kam gar keine Verbindung zustande, schreibt
   `netz_diagnose` nach dem letzten Versuch je Adresse des Hosts (IPv4, IPv6),
   was der Verbindungsaufbau ergab.
-- **Rückfall je Land:** Kommt der Auszug nicht, fragt `tools/hole_orte.py` für
-  dieses Land Overpass, seit Runde 52 nur `overpass.private.coffee` (am
-  20.11.2026 stand kurz die Instanz von VK Maps, `maps.mail.ru`, als zweiter
-  Server dahinter; Marcel hat sie herausgenommen). Bis zu drei Versuche mit 30
-  und 90 s Pause (das Wiki bittet nach 429 oder 406 um mindestens 30 s),
-  zusammen höchstens 20 Minuten je Land; eine unbrauchbare Antwort gilt ohne
-  zweiten Versuch als gescheitert. `overpass-api.de` bleibt draußen (siehe
-  unten).
-- **Scheitert auch das,** endet `hole_orte.py` mit Exit-Code 1: Die Schritte
-  danach (Prüfung, Artefakt) laufen nicht, der Job `veroeffentlichen` wird
-  übersprungen, online bleibt die alte Fassung, und `melden` legt das Issue
-  an. Halbes gibt es nicht: Dateien einzelner Länder, die schon da waren,
-  bleiben auf dem Runner. Der Job `bauen` hat dazu eine Obergrenze von 240
-  Minuten.
-- **Woher ein Land kam,** steht im Protokoll („Quelle geofabrik“ bzw.
-  „Quelle overpass (…)“) und in `stand.json` unter `quelle` (kamen alle vom
-  Auszug: `geofabrik`, sonst je Land).
+- **Kein Rückfall** (seit Runde 54, 21.11.2026): Bis dahin fragte ein Land,
+  dessen Auszug nicht kam, Overpass (`overpass.private.coffee`). Dieser
+  Server lieferte am 21.11.2026 Daten, die vier bis sechs Monate alt waren
+  (AT Stand 31.05.2026, CH 24.07.2026), auf GitHub lief der Rückfall nie;
+  auf Marcels Auftrag ist er ganz entfernt, auch der Handstart mit `ORTE_QUELLE=overpass`
+  und die Eingabe `quelle` des Workflows.
+- **Scheitert ein Auszug,** endet `hole_orte.py` mit Exit-Code 1: Die
+  Schritte danach (Prüfung, Artefakt) laufen nicht, der Job `veroeffentlichen`
+  wird übersprungen, online bleibt die alte Fassung, und `melden` legt das
+  Issue an. Halbes gibt es nicht: Dateien einzelner Länder, die schon da
+  waren, bleiben auf dem Runner. Der Dienstagslauf (unten) holt nach. Der Job
+  `bauen` hat eine Obergrenze von 240 Minuten.
+- **Woher ein Land kam,** steht im Protokoll („Quelle geofabrik“) und in
+  `stand.json` unter `quelle` (seit Runde 54 immer `geofabrik`; bis dahin je
+  Land auch `overpass (…)`).
 
 - **Zweiter Lauf dienstags** (seit Runde 52): 24 Stunden nach dem Montagslauf,
   03:23 UTC. Der Job `vorab` liest das Feld `stand` der veröffentlichten
@@ -240,27 +238,43 @@ Ein zweiter Server für Auszüge wäre der nähere Rückfall gewesen;
 `download.openstreetmap.fr` schließt das selbst aus (`robots.txt`: „Disallow:
 /“, am 20.11.2026 gelesen), und der Spiegel der GWDG führt nur DE.
 
-### Overpass: Rückfall und Handstart
+### Sorgsam laden (Geofabrik, „Download responsibly!“)
 
-Overpass ist der Rückfall (oben) und bleibt für einen Handstart:
-`ORTE_QUELLE=overpass python3 tools/hole_orte.py` bzw. im Workflow „Run
-workflow“ mit Quelle `overpass`. Beim Handstart gibt es keinen Rückfall auf
-den Auszug: Scheitert die Abfrage, scheitert der Lauf und nichts wird
-veröffentlicht. Server wie oben (ersetzbar über `OVERPASS_URL`, mehrere durch
-Leerzeichen getrennt), User-Agent
-`StepZero-Daten/1.0 (info.laggstudio@gmail.com)`, Zeitlimit der Abfrage 180 s,
-30 s Pause zwischen den Ländern; eine Antwort mit Fehlerhinweis, ohne
-Elemente oder mit einem Datenstand älter als 7 Tage gilt als unbrauchbar. Am 9.11.2026 war Overpass in allen drei Läufen überlastet
-oder lieferte veraltete Daten (private.coffee: Stand Juni, für DE leer), darum
-ist der Auszug die Hauptquelle.
+Geofabriks Blog-Beitrag
+[„Download responsibly!“](https://blog.geofabrik.de/index.php/2025/09/10/download-responsibly/)
+(Frederik Ramm, 10.09.2025, am 21.11.2026 gelesen) bittet um drei Dinge. So
+setzt das Repo sie um (Runde 54):
 
-### Warum nicht overpass-api.de
+1. „If you want data for the whole planet, don't download it piecemeal“: passt
+   nicht, wir brauchen nur DE, AT und CH.
+2. „If you want a large region … updated daily, use … pyosmium-up-to-date“:
+   **nicht umgesetzt.** Wir laden drei mittlere Länder einmal pro Woche
+   (montags, dienstags nur, wenn der Montag scheiterte), nicht täglich eine
+   große Region. Die Aktualisierung bräuchte die Auszüge von Lauf zu Lauf
+   (rund 6,2 GB im Cache von GitHub Actions, der Einträge nach 7 Tagen ohne
+   Zugriff verwirft, also genau in unserem Takt) und die Ordner
+   `*-updates*`, die Geofabriks `robots.txt` für alle User-Agents sperrt.
+   Steht im Backlog der App (`docs/claude/backlog.md`).
+3. „Monitor what your script is doing or build in appropriate catches so that
+   you don't end up downloading the same file 1000 times just because your
+   disk is full“: **umgesetzt** in `tools/geofabrik.py`:
+   - Was eine Wiederholung nicht heilt, bekommt keine (`Endgueltig`): eine
+     Ablehnung von Geofabrik (4xx außer 408, auch 429 „Too Many Requests“),
+     zu wenig Platz auf dem Runner für die angekündigte Länge plus 64 MB
+     (`RESERVE`, geprüft vor dem ersten Byte), ein gescheitertes Schreiben
+     (volle Platte).
+   - Je Land und Lauf höchstens zweimal die Länge des Auszugs
+     (`HOECHSTENS_DOWNLOADS`); eine falsche Prüfsumme kostet so höchstens zwei
+     ganze Downloads statt fünf. Abgebrochene Downloads zählen mit ihren Byte.
+   - Jeder Versuch schreibt ins Protokoll, wie viel er geladen hat, und am
+     Ende steht je Land die Summe („de: … Byte in 1 Versuch(en) geladen“).
+   - Weiter wie bisher: kein paralleler Abruf (ein Land nach dem anderen,
+     `concurrency: pages` im Workflow), feste Pausen zwischen Versuchen, eine
+     Zeitgrenze je Land.
 
-Die Hauptinstanz war beim ersten Lauf am 9.11.2026 überlastet (Zeitüberschreitung,
-dann 502 „at capacity … intended for browser-based and human-operated tools“).
-Das [OSM-Wiki](https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances)
-bittet dort bei regelmäßiger Nutzung um ein Hundertstel der üblichen Grenzen und
-schreibt „Commercial use should use self-hosted or paid Overpass servers“; Step Zero
-verkauft Pro. Private.coffee schreibt im selben Wiki: „Feel free to use our
-service in any project, there is no rate limit in place. Please notify us in
-advance if you intend to use our service in a large scale project.“
+Dazu nennt jeder Abruf des Repos (Geofabrik, GitHub Pages) seit Runde 54
+Projekt, Repo-Adresse und Kontakt: `USER_AGENT` in `tools/orte.py`,
+`StepZero-Daten/1.0 (+https://github.com/LAGGstudio/stepzero-daten;
+info.laggstudio@gmail.com)` (bis dahin ohne Repo-Adresse);
+`tests/test_orte.py` (`Kennung`) prüft, dass jede Anfrage im Code sie trägt
+und dass sie beim Server ankommt.

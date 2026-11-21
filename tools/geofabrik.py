@@ -1,12 +1,11 @@
-"""Hauptquelle für tools/hole_orte.py (seit dem 10.11.2026, vorher Rückfall):
-die Orte eines Lands aus dem Geofabrik-Auszug (.osm.pbf), gelesen mit pyosmium
-(`pip install osmium`).
+"""Einzige Quelle für tools/hole_orte.py (seit dem 10.11.2026 Hauptquelle,
+seit Runde 54 ohne Rückfall auf Overpass): die Orte eines Lands aus dem
+Geofabrik-Auszug (.osm.pbf), gelesen mit pyosmium (`pip install osmium`).
 
-Das OSM-Wiki empfiehlt Auszüge plus osmium, wenn man viele Daten braucht oder
-die öffentlichen Overpass-Server überlastet sind (am 9.11.2026 alle drei).
-Liefert dasselbe Format wie Overpass (`elements` mit `tags`, bei Wegen und
-Relationen `center` als Mitte des umschließenden Rechtecks), damit dieselbe
-Umwandlung (`hole_orte.umwandeln`) und dieselbe Prüfung greifen.
+Das OSM-Wiki empfiehlt Auszüge plus osmium, wenn man viele Daten braucht.
+Liefert das Format, das früher Overpass lieferte (`elements` mit `tags`, bei
+Wegen und Relationen `center` als Mitte des umschließenden Rechtecks), damit
+dieselbe Umwandlung (`hole_orte.umwandeln`) und dieselbe Prüfung greifen.
 
 Der Download (seit dem 12.11.2026, Audit 11.5) muss so lang sein wie
 Content-Length und zur .md5 passen, sonst gilt er als gescheitert. Geofabrik
@@ -21,16 +20,26 @@ in vier Minuten, jedes Mal sofort mit „Network is unreachable“): bis zu fün
 Versuche mit wachsender Pause (PAUSEN), zusammen höchstens ZEITGRENZE; nach
 einem Verbindungsfehler schreibt `netz_diagnose` je Adresse des Hosts, was
 der Verbindungsaufbau ergab. Scheitert alles, wirft `laden` Gescheitert, und
-`hole_orte.holen` fällt auf Overpass zurück.
+der Lauf ist rot (seit Runde 54 ohne Rückfall).
+
+Seit Runde 54 nach Geofabriks „Download responsibly!“ (10.09.2025), Punkt 3
+(„build in appropriate catches so that you don't end up downloading the same
+file 1000 times just because your disk is full“): Was eine Wiederholung nicht
+heilt, bekommt keine (`Endgueltig`: Geofabrik lehnt mit 4xx ab, auch 429;
+auf dem Runner ist zu wenig Platz für die angekündigte Länge; das Schreiben
+scheitert). Je Land und Lauf höchstens HOECHSTENS_DOWNLOADS-mal die Länge des
+Auszugs, danach kein weiterer Versuch (eine falsche Prüfsumme kostet so
+höchstens zwei ganze Downloads statt fünf). Jeder Versuch schreibt ins
+Protokoll, wie viel er geladen hat.
 """
-import hashlib, http.client, os, re, socket, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
+import hashlib, http.client, os, re, shutil, socket, sys, tempfile, time, urllib.error, urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
-from orte import ARTEN, art, ausgeschlossen  # noqa: E402
+from orte import ARTEN, USER_AGENT, art, ausgeschlossen  # noqa: E402
 
 REGION = {'de': 'europe/germany', 'at': 'europe/austria', 'ch': 'europe/switzerland'}
 QUELLE = 'https://download.geofabrik.de/%s-latest.osm.pbf'
-USER_AGENT = 'StepZero-Daten/1.0 (info.laggstudio@gmail.com)'
 
 # Alle Etiketten aus ARTEN als (Schlüssel, Wert) für den Filter in C++; was
 # genau passt (etwa garden:type=community), entscheidet danach `art`.
@@ -44,10 +53,26 @@ PAUSEN = (60, 120, 240, 480)
 # hinausführen, gibt es keinen weiteren Versuch (ein Download von DE dauerte
 # in den Läufen bis zum 13.11.2026 zwischen 31 und 388 s).
 ZEITGRENZE = 30 * 60
+# Je Land und Lauf höchstens so viele ganze Längen des Auszugs laden (Runde
+# 54, Geofabriks Punkt 3): Danach beginnt kein weiterer Versuch.
+HOECHSTENS_DOWNLOADS = 2
+# So viel Platz bleibt auf dem Runner frei, über die angekündigte Länge hinaus.
+RESERVE = 64 * 1024 * 1024
 
 
 class Unvollstaendig(Exception):
     """Ein Versuch lieferte nicht die ganze Datei (Länge, Prüfsumme)."""
+
+
+class Endgueltig(Exception):
+    """Ein Versuch, den eine Wiederholung nicht heilt (Runde 54): Geofabrik
+    lehnt ab (4xx außer 408, auch 429), auf dem Runner fehlt Platz, oder das
+    Schreiben scheitert. Danach kein weiterer Versuch."""
+
+
+def freier_platz(ordner):
+    """Freie Byte im Ordner (Tests ersetzen das)."""
+    return shutil.disk_usage(ordner).free
 
 
 class Gescheitert(SystemExit):
@@ -102,26 +127,44 @@ def _pruefsumme(ende, url):
     raise Unvollstaendig('keine .md5 zu %s' % ende)
 
 
-def _einmal_laden(url, ziel):
+def _einmal_laden(url, ziel, zaehler):
     """Lädt `url` nach `ziel` und gibt (Adresse nach Weiterleitungen, md5)
     zurück; zu kurz oder ohne Content-Length: Unvollstaendig. Pythons
-    `read(amt)` meldet einen abgebrochenen Download nicht selbst."""
+    `read(amt)` meldet einen abgebrochenen Download nicht selbst. In
+    `zaehler` stehen danach (auch nach einem Fehler) `byte` (in diesem
+    Versuch geladen) und `laenge` (angekündigt). Zu wenig Platz oder ein
+    gescheitertes Schreiben: Endgueltig."""
     anfrage = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
-    summe, n = hashlib.md5(), 0
-    with urllib.request.urlopen(anfrage, timeout=120) as a, open(ziel, 'wb') as d:
+    summe = hashlib.md5()
+    zaehler['byte'] = 0
+    with urllib.request.urlopen(anfrage, timeout=120) as a:
         laenge = a.headers.get('Content-Length')
         if laenge is None or not laenge.strip().isdigit():
             raise Unvollstaendig('ohne Content-Length')
-        while True:
-            stueck = a.read(1 << 20)
-            if not stueck:
-                break
-            d.write(stueck)
-            summe.update(stueck)
-            n += len(stueck)
+        laenge = int(laenge)
+        zaehler['laenge'] = laenge
+        ordner = os.path.dirname(os.path.abspath(ziel))
+        frei = freier_platz(ordner)
+        if frei < laenge + RESERVE:
+            raise Endgueltig('zu wenig Platz: %d Byte frei, der Auszug hat %d' % (frei, laenge))
+        try:
+            d = open(ziel, 'wb')
+        except OSError as fehler:
+            raise Endgueltig('Datei nicht anzulegen: %s' % fehler)
+        with d:
+            while True:
+                stueck = a.read(1 << 20)
+                if not stueck:
+                    break
+                try:
+                    d.write(stueck)
+                except OSError as fehler:
+                    raise Endgueltig('Schreiben gescheitert: %s' % fehler)
+                summe.update(stueck)
+                zaehler['byte'] += len(stueck)
         ende = a.geturl()
-    if n != int(laenge):
-        raise Unvollstaendig('%d von %s Byte' % (n, laenge.strip()))
+    if zaehler['byte'] != laenge:
+        raise Unvollstaendig('%d von %d Byte' % (zaehler['byte'], laenge))
     return ende, summe.hexdigest()
 
 
@@ -136,17 +179,39 @@ def laden(land, ziel, quelle=QUELLE, pausen=PAUSEN, grenze=ZEITGRENZE, schlafen=
     schlafen, uhr = schlafen or time.sleep, uhr or time.monotonic
     versuche = len(pausen) + 1
     anfang = uhr()
+    zaehler = {'byte': 0, 'laenge': None}
+    gesamt = 0
     for versuch in range(1, versuche + 1):
         try:
-            ende, summe = _einmal_laden(url, ziel)
+            try:
+                ende, summe = _einmal_laden(url, ziel, zaehler)
+            finally:
+                gesamt += zaehler['byte']
             erwartet = _pruefsumme(ende, url)
             if summe != erwartet:
                 raise Unvollstaendig('Prüfsumme %s, erwartet %s' % (summe, erwartet))
+            print('%s: %d Byte in %d Versuch(en) geladen' % (land, gesamt, versuch), file=sys.stderr)
             return ende
-        except (Unvollstaendig, OSError, http.client.HTTPException) as fehler:
+        except urllib.error.HTTPError as fehler:
             letzter = fehler
             print('%s: Versuch %d von %d gescheitert: %s' % (land, versuch, versuche, fehler), file=sys.stderr)
+            if 400 <= fehler.code < 500 and fehler.code != 408:
+                print('%s: Geofabrik lehnt ab (%d), kein weiterer Versuch' % (land, fehler.code), file=sys.stderr)
+                break
+        except Endgueltig as fehler:
+            letzter = fehler
+            print('%s: Versuch %d von %d gescheitert: %s; kein weiterer Versuch' % (land, versuch, versuche, fehler),
+                  file=sys.stderr)
+            break
+        except (Unvollstaendig, OSError, http.client.HTTPException) as fehler:
+            letzter = fehler
+            print('%s: Versuch %d von %d gescheitert: %s (%d Byte geladen)'
+                  % (land, versuch, versuche, fehler, zaehler['byte']), file=sys.stderr)
         if versuch == versuche:
+            break
+        if zaehler['laenge'] and gesamt >= HOECHSTENS_DOWNLOADS * zaehler['laenge']:
+            print('%s: schon %d Byte geladen (%d-mal die Länge des Auszugs), kein weiterer Versuch'
+                  % (land, gesamt, HOECHSTENS_DOWNLOADS), file=sys.stderr)
             break
         pause = pausen[versuch - 1]
         if uhr() - anfang + pause > grenze:

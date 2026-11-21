@@ -13,7 +13,7 @@ import json, os, re, sys, urllib.error, urllib.request
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(__file__))
-from orte import ART_NAMEN, LAENDER, ODBL_URI, RAHMEN  # noqa: E402
+from orte import ART_NAMEN, LAENDER, ODBL_URI, RAHMEN, USER_AGENT  # noqa: E402
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_RUECKGANG = 0.30
@@ -27,7 +27,6 @@ MIN_VORHER = 20
 MIN_EINTRAEGE = 1000
 MAX_ALTER_TAGE = 30
 FELDER = {'id', 'k', 'lat', 'lon', 'name', 'adresse', 'oeffnung'}
-USER_AGENT = 'StepZero-Daten/1.0 (info.laggstudio@gmail.com)'
 
 
 def schema_fehler(land, daten, heute=None):

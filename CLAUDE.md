@@ -21,14 +21,20 @@ Ablauf, Arten, Etiketten und Prüfungen stehen im README.
   Push `git pull`). Rote Probe des Wächters: `-f fehlerprobe=true`, dann das
   Issue mit dem Label `lauf-gescheitert` prüfen und schließen (README,
   „Wächter“).
-- Hauptquelle ist der Geofabrik-Auszug (fünf Versuche mit wachsender Pause,
-  höchstens 30 Minuten je Land). Kommt er nicht, fällt das Land auf Overpass
-  zurück (seit Runde 52 nur `overpass.private.coffee`, nie `overpass-api.de`,
-  nicht mehr VK Maps); scheitert auch das, ist der Lauf rot und nichts wird
-  veröffentlicht. Von Hand mit `ORTE_QUELLE=overpass` läuft nur Overpass,
-  ohne Rückfall auf den Auszug. README, „Wiederholung und Rückfall“. Vor
-  einem neuen Server dessen Nutzungsregeln lesen (`robots.txt`, OSM-Wiki),
-  bevor ihn irgendein Abruf trifft.
+- Einzige Quelle ist der Geofabrik-Auszug (fünf Versuche mit wachsender
+  Pause, höchstens 30 Minuten je Land). Seit Runde 54 gibt es keinen Rückfall
+  auf Overpass mehr (Marcels Auftrag; der Server lieferte Monate alte Daten):
+  Scheitert ein Auszug, ist der Lauf rot, nichts wird veröffentlicht, online
+  bleibt der alte Stand, der Dienstagslauf holt nach. README, „Wiederholung
+  (ohne Rückfall)“. Vor einem neuen Server dessen Nutzungsregeln lesen
+  (`robots.txt`, OSM-Wiki), bevor ihn irgendein Abruf trifft.
+- Sorgsam laden (Geofabrik, „Download responsibly!“, README): Was eine
+  Wiederholung nicht heilt (4xx, zu wenig Platz, Schreibfehler), wird nicht
+  wiederholt; je Land und Lauf höchstens zweimal die Länge des Auszugs. Jeder
+  Abruf trägt `USER_AGENT` aus `tools/orte.py` (Projekt, Repo, Kontakt); kein
+  Abruf ohne ihn. Den `.osm.pbf` lädt nur der Lauf auf GitHub, nie eine
+  Sitzung von Claude (Geofabriks `robots.txt` sperrt `*.osm.pbf` für alle
+  User-Agents).
 - Ändert sich das Format der Dateien (Felder, Arten `k`), muss die App es
   lesen können: unbekannte Arten übergeht sie, fehlende Pflichtfelder machen
   die Datei für sie kaputt; die App verwirft außerdem neue Dateien mit weniger
